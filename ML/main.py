@@ -1,21 +1,33 @@
-from fastapi import FastAPI
-from app.api.predict import router as predict_router
-from app.services.model_loader import ModelLoader
-from contextlib import asynccontextmanager
+# main.py
+import subprocess
+import sys
+import os
 
+def main():
+    print("🚀 Запускаю gRPC сервер...")
+    
+    if not os.path.exists("app/grps/server.py"):
+        print("❌ Файл server.py не найден")
+        return
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-
-    model_loader = ModelLoader()
-    app.state.model = model_loader.get_model()
-   
-    yield  
-
-
-app = FastAPI(lifespan=lifespan)
-app.include_router(predict_router, prefix="/api")
+    try:
+        # Запускаем как модуль И захватываем вывод
+        result = subprocess.run(
+            [sys.executable, "-m", "app.grps.server"],
+            capture_output=False,  # Выводим всё в консоль напрямую
+            text=True,
+            check=False  # Не выбрасываем исключение автоматически
+        )
+        
+        if result.returncode != 0:
+            print(f"\n⚠️ Сервер завершился с кодом: {result.returncode}")
+        else:
+            print("\n✅ Сервер остановлен штатно")
+            
+    except KeyboardInterrupt:
+        print("\n🛑 Принудительная остановка")
+    except Exception as e:
+        print(f"💥 Аварийная ошибка: {e}")
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    main()
