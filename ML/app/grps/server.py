@@ -72,6 +72,8 @@ class DetectorService(detector_pb2_grpc.DetectorServicer):
             logger.exception("Error during detection")
             return self._error_response(f"Detection failed: {str(e)}")
 
+
+
     @staticmethod
     def _error_response(message: str) -> detector_pb2.DetectionResponse:
         """Вспомогательный метод для формирования ошибки"""

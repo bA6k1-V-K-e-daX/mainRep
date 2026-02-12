@@ -2,25 +2,19 @@
 syntax = "proto3";
 
 service Detector {
-  // Единственный метод - детекция объектов на изображении
   rpc ImageDetection (DetectionRequest) returns (DetectionResponse);
 }
 
-// ЗАПРОС: Что нужно найти и где
 message DetectionRequest {
-  // 1. Путь к изображению в файловой системе
   string image_path = 1;
   
-  // 2. Какие объекты ищем (пустой список = все объекты)
   repeated string target_classes = 2;
   
-  // 3. Минимальная уверенность (0.0 - 1.0)
   float min_confidence = 3;
 }
 
 // ОТВЕТ: Что нашли
 message DetectionResponse {
-  // 1. Успешно ли выполнено
   bool success = 1;
   
   // 2. Список найденных объектов с количеством

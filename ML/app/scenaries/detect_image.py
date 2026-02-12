@@ -3,7 +3,8 @@
 from ultralytics import YOLO
 def detect_image(image_path: str, target_ids=None, min_confidence=0.5, model: YOLO = None):
     """
-    Выполняет детекцию на одном изображении.
+    Выполняет детекцию на одном изображении,
+    а также сохраняет результат в папку results
     """
     results = model(
         image_path,
