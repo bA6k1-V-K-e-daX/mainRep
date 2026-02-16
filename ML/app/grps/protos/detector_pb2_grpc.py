@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-import app.grps.protos.detector_pb2 as detector__pb2
+from . import detector_pb2 as detector__pb2
 
 GRPC_GENERATED_VERSION = '1.78.0'
 GRPC_VERSION = grpc.__version__
@@ -35,7 +35,7 @@ class DetectorStub(object):
             channel: A grpc.Channel.
         """
         self.ImageDetection = channel.unary_unary(
-                '/Detector/ImageDetection',
+                '/grps.Detector/ImageDetection',
                 request_serializer=detector__pb2.DetectionRequest.SerializeToString,
                 response_deserializer=detector__pb2.DetectionResponse.FromString,
                 _registered_method=True)
@@ -45,8 +45,7 @@ class DetectorServicer(object):
     """Missing associated documentation comment in .proto file."""
 
     def ImageDetection(self, request, context):
-        """Единственный метод - детекция объектов на изображении
-        """
+        """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -61,9 +60,9 @@ def add_DetectorServicer_to_server(servicer, server):
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'Detector', rpc_method_handlers)
+            'grps.Detector', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('Detector', rpc_method_handlers)
+    server.add_registered_method_handlers('grps.Detector', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
@@ -84,7 +83,7 @@ class Detector(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/Detector/ImageDetection',
+            '/grps.Detector/ImageDetection',
             detector__pb2.DetectionRequest.SerializeToString,
             detector__pb2.DetectionResponse.FromString,
             options,

@@ -2,6 +2,8 @@
 import subprocess
 import sys
 import os
+from pathlib import Path
+
 
 def main():
     print("🚀 Запускаю gRPC сервер...")

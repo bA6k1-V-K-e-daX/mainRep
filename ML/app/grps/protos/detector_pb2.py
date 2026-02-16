@@ -24,19 +24,19 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0e\x64\x65tector.proto\"V\n\x10\x44\x65tectionRequest\x12\x12\n\nimage_path\x18\x01 \x01(\t\x12\x16\n\x0etarget_classes\x18\x02 \x03(\t\x12\x16\n\x0emin_confidence\x18\x03 \x01(\x02\"u\n\x11\x44\x65tectionResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12!\n\x0c\x63lass_counts\x18\x02 \x03(\x0b\x32\x0b.ClassCount\x12\x15\n\rerror_message\x18\x03 \x01(\t\x12\x15\n\rtotal_objects\x18\x04 \x01(\x05\"/\n\nClassCount\x12\x12\n\nclass_name\x18\x01 \x01(\t\x12\r\n\x05\x63ount\x18\x02 \x01(\x05\x32\x43\n\x08\x44\x65tector\x12\x37\n\x0eImageDetection\x12\x11.DetectionRequest\x1a\x12.DetectionResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0e\x64\x65tector.proto\x12\x04grps\"G\n\x10\x44\x65tectionRequest\x12\x10\n\x08query_id\x18\x01 \x01(\x03\x12\x10\n\x08\x64ir_path\x18\x02 \x01(\t\x12\x0f\n\x07targets\x18\x03 \x03(\t\"\xa1\x01\n\x11\x44\x65tectionResponse\x12\x10\n\x08query_id\x18\x01 \x01(\x03\x12\x13\n\x0bresult_path\x18\x02 \x01(\t\x12\x0f\n\x07success\x18\x03 \x01(\x08\x12&\n\x0c\x63lass_counts\x18\x04 \x03(\x0b\x32\x10.grps.ClassCount\x12\x15\n\rerror_message\x18\x05 \x01(\t\x12\x15\n\rtotal_objects\x18\x06 \x01(\x05\"/\n\nClassCount\x12\x12\n\nclass_name\x18\x01 \x01(\t\x12\r\n\x05\x63ount\x18\x02 \x01(\x05\x32M\n\x08\x44\x65tector\x12\x41\n\x0eImageDetection\x12\x16.grps.DetectionRequest\x1a\x17.grps.DetectionResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'detector_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_DETECTIONREQUEST']._serialized_start=18
-  _globals['_DETECTIONREQUEST']._serialized_end=104
-  _globals['_DETECTIONRESPONSE']._serialized_start=106
-  _globals['_DETECTIONRESPONSE']._serialized_end=223
-  _globals['_CLASSCOUNT']._serialized_start=225
-  _globals['_CLASSCOUNT']._serialized_end=272
-  _globals['_DETECTOR']._serialized_start=274
-  _globals['_DETECTOR']._serialized_end=341
+  _globals['_DETECTIONREQUEST']._serialized_start=24
+  _globals['_DETECTIONREQUEST']._serialized_end=95
+  _globals['_DETECTIONRESPONSE']._serialized_start=98
+  _globals['_DETECTIONRESPONSE']._serialized_end=259
+  _globals['_CLASSCOUNT']._serialized_start=261
+  _globals['_CLASSCOUNT']._serialized_end=308
+  _globals['_DETECTOR']._serialized_start=310
+  _globals['_DETECTOR']._serialized_end=387
 # @@protoc_insertion_point(module_scope)

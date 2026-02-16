@@ -1,19 +1,24 @@
-
-
 from ultralytics import YOLO
-def detect_image(image_path: str, target_ids=None, min_confidence=0.5, model: YOLO = None):
+from pathlib import Path
+from app.utils.generate_report import save_summary_report
+
+
+
+
+def detect_image(source_path: str, save_path: str, target_ids=None, min_confidence=0.5, model: YOLO = None):
     """
     Выполняет детекцию на одном изображении,
     а также сохраняет результат в папку results
     """
     results = model(
-        image_path,
+        source_path,
         conf=min_confidence,
         classes=target_ids,      # ← фильтрация на уровне модели
         save=True,
-        project="results",
+        project=Path(save_path).parent, 
+        name=Path(save_path).name, 
         exist_ok=True,
-        verbose=False
+        verbose=False,
     )
     
     if results:
@@ -31,5 +36,10 @@ def detect_image(image_path: str, target_ids=None, min_confidence=0.5, model: YO
             cls_id = int(box.cls.item())
             cls_name = names[cls_id]
             counts[cls_name] = counts.get(cls_name, 0) + 1
+    if results:
+        report_file = Path(save_path) / "detection_summary.txt"
+        save_summary_report(results, model.names, str(report_file))
+    else:
+        print("⚠️ Нет обработанных изображений — отчёт не создан")
             
     return counts
