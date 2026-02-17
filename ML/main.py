@@ -2,9 +2,11 @@
 import subprocess
 import sys
 import os
+from pathlib import Path
+
 
 def main():
-    print("🚀 Запускаю gRPC сервер...")
+    print("🚀 Запускаю gRPC сервер...🚀🚀🚀🚀")
     
     if not os.path.exists("app/grps/server.py"):
         print("❌ Файл server.py не найден")

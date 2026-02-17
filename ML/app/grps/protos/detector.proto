@@ -1,31 +1,35 @@
 // app/grps/protos/detector.proto
 syntax = "proto3";
 
+package grps; // опционально, но рекомендуется для избежания конфликтов
+
 service Detector {
   rpc ImageDetection (DetectionRequest) returns (DetectionResponse);
 }
 
+// ЗАПРОС
 message DetectionRequest {
-  string image_path = 1;
-  
-  repeated string target_classes = 2;
-  
-  float min_confidence = 3;
+  int64 query_id = 1;
+  string dir_path = 2;
+  repeated string targets = 3;
 }
 
-// ОТВЕТ: Что нашли
+// ОТВЕТ
 message DetectionResponse {
-  bool success = 1;
-  
-  // 2. Список найденных объектов с количеством
-  //    [{"person": 3}, {"car": 2}]
-  repeated ClassCount class_counts = 2;
-  
-  // 3. Сообщение об ошибке (если success = false)
-  string error_message = 3;
-  
-  // 4. Всего найдено объектов (сумма всех class_counts)
-  int32 total_objects = 4;
+  int64 query_id = 1;
+  string result_path = 2;
+
+  bool success = 3;
+
+  // Список найденных объектов с количеством
+  // [{"person": 3}, {"car": 2}]
+  repeated ClassCount class_counts = 4;
+
+  // Сообщение об ошибке (если success = false)
+  string error_message = 5;
+
+  // Всего найдено объектов (сумма всех class_counts)
+  int32 total_objects = 6;
 }
 
 // Класс и его количество
@@ -33,3 +37,4 @@ message ClassCount {
   string class_name = 1;
   int32 count = 2;
 }
+
