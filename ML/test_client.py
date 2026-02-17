@@ -1,7 +1,30 @@
 # app/grps/test_client.py
 import grpc
 from app.grps.protos import detector_pb2, detector_pb2_grpc
+def print_detection_response(response: 'detector_pb2.DetectionResponse') -> None:
+    """
+    Выводит все поля DetectionResponse в удобочитаемом формате.
+    Полезно для отладки или логирования.
+    """
+    print("=" * 50)
+    print("📄 DETECTION RESPONSE DETAILS")
+    print("=" * 50)
+    print(f"Query ID:        {response.query_id}")
+    print(f"Result Path:     {response.result_path}")
+    print(f"Success:         {response.success}")
 
+    if not response.success:
+        print(f"Error Message:   {response.error_message}")
+    else:
+        print(f"Total Objects:   {response.total_objects}")
+        print("Class Counts:")
+        if response.class_counts:
+            for item in response.class_counts:
+                print(f"  - {item.class_name}: {item.count}")
+        else:
+            print("  (no objects detected)")
+
+    print("=" * 50)
 def main():
     # Подключаемся к серверу
     channel = grpc.insecure_channel('localhost:50051')
@@ -10,7 +33,7 @@ def main():
     # Параметры запроса
     query_id = 3
     dir_path = "volume"  # ← замените на реальный путь к папке или файлу!
-    targets = ['bus','apple']       # ← классы, которые нужно искать (оставьте [] для всех)
+    targets = []       # ← классы, которые нужно искать (оставьте [] для всех)
 
     # Формируем запрос
     request = detector_pb2.DetectionRequest(
@@ -28,12 +51,7 @@ def main():
         response = stub.ImageDetection(request)
         
         if response.success:
-            print("\n✅ Успех!")
-            print(f"   query_id:     {response.query_id}")
-            print(f"   result_path:  {response.result_path}")
-            print(f"   Всего объектов: {response.total_objects}")
-            for item in response.class_counts:
-                print(f"   • {item.class_name}: {item.count}")
+            print_detection_response(response)
         else:
             print(f"\n❌ Ошибка: {response.error_message}")
             
