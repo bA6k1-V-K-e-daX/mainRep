@@ -1,0 +1,15 @@
+env: "local" # debug, local, test, production
+format_time: "RFC3339"
+file_path: "app.log"
+
+grpc:
+  port: 2021
+  timeout: 20
+
+postgres:
+  host: "db"
+  port: 5432
+  user: "babkivkedah"
+  password: "tapki.com"
+  database: "projectml"
+  migrations_path: "file://migrations"

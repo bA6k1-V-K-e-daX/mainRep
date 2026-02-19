@@ -1,0 +1,16 @@
+env: "local" # debug, local, test, production
+format_time: "RFC3339"
+file_path: "app.log"
+
+httpserver:
+  port: 8080
+  host: localhost
+
+client:
+  database:
+    host: db_service
+    port: 2021
+
+  ml:
+    host: ml
+    port: 2022
