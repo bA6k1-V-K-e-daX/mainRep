@@ -1,6 +1,8 @@
 env: "local" # debug, local, test, production
 format_time: "RFC3339"
-file_path: "app.log"
+log_file_path: "app.log"
+temp_object_path: "volume"
+jwt_secret: "xui"
 
 httpserver:
   port: 8080

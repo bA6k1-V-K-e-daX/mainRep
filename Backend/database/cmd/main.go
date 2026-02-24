@@ -40,7 +40,6 @@ func main() {
 	logger.Info("Application has been successfully initialized", nil)
 	go func() {
 		application.GRPCServer.MustRun()
-		application.Worker.SetWorker()
 	}()
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)

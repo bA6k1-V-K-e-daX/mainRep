@@ -16,7 +16,7 @@ type HTTPApp struct {
 	port      int
 }
 
-func New(port int) (*HTTPApp, *gin.Engine) {
+func New(port int) *HTTPApp {
 	gin.ForceConsoleColor()
 	r := gin.New()
 	r.Use(gin.Logger())
@@ -24,8 +24,8 @@ func New(port int) (*HTTPApp, *gin.Engine) {
 	r.Use(middleware.StructuredLogHandler())
 	r.Use(middleware.ErrorHandler())
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://127.0.0.1:8080"},
-		AllowMethods:     []string{"GET", "POST"},
+		AllowOrigins:     []string{"*"}, // Modified for universal local access
+		AllowMethods:     []string{"GET", "POST", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length", "Authorization"},
 		AllowCredentials: true,
@@ -33,7 +33,11 @@ func New(port int) (*HTTPApp, *gin.Engine) {
 	return &HTTPApp{
 		ginServer: r,
 		port:      port,
-	}, r
+	}
+}
+
+func (a *HTTPApp) GetEngine() *gin.Engine {
+	return a.ginServer
 }
 
 func (a *HTTPApp) MustRun() {

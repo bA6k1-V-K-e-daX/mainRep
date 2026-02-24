@@ -1,8 +1,10 @@
 package dbrepo
 
 import (
+	"context"
 	"database/internal/config"
 	"database/internal/migrator"
+	"database/internal/models"
 	"database/sql"
 	"fmt"
 
@@ -45,4 +47,24 @@ func New(cfg config.DatabaseConfig) *DatabaseRepo {
 	}
 	logger.Info("Database migration completed", nil)
 	return &DatabaseRepo{db: db}
+}
+
+func (r *DatabaseRepo) CreateUser(ctx context.Context, user models.User) error {
+	query := `INSERT INTO users (login, password_hash) VALUES ($1, $2)`
+	_, err := r.db.ExecContext(ctx, query, user.Login, user.PasswordHash)
+	return err
+}
+
+func (r *DatabaseRepo) GetUserByLogin(ctx context.Context, login string) (models.User, error) {
+	query := `SELECT id, login, password_hash FROM users WHERE login = $1`
+	var user models.User
+	err := r.db.QueryRowContext(ctx, query, login).Scan(&user.ID, &user.Login, &user.PasswordHash)
+	return user, err
+}
+
+func (r *DatabaseRepo) CreateQuery(ctx context.Context, userID string) (int64, error) {
+	query := `INSERT INTO queries (user_id) VALUES ($1) RETURNING id`
+	var queryID int64
+	err := r.db.QueryRowContext(ctx, query, userID).Scan(&queryID)
+	return queryID, err
 }

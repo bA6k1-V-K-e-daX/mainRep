@@ -10,11 +10,13 @@ import (
 )
 
 type Config struct {
-	Env        string       `yaml:"env" env-default:"local"`           // debug, local, test, production
-	FormatTime string       `yaml:"format_time" env-default:"RFC3339"` // time format
-	FilePath   string       `yaml:"file_path" env-default:"app.log"`   // log file path
-	HttpServer HttpConfig   `yaml:"httpserver"`                        // http server config
-	Client     ClientConfig `yaml:"client"`                            // client config
+	Env            string       `yaml:"env" env-default:"local"`               // debug, local, test, production
+	FormatTime     string       `yaml:"format_time" env-default:"RFC3339"`     // time format
+	LogFilePath    string       `yaml:"log_file_path" env-default:"app.log"`   // log file path
+	TempObjectPath string       `yaml:"temp_object_path" env-default:"volume"` // temp object path
+	JWTSecret      string       `yaml:"jwt_secret" env-default:"secret"`
+	HttpServer     HttpConfig   `yaml:"httpserver"` // http server config
+	Client         ClientConfig `yaml:"client"`     // client config
 }
 
 type ClientConfig struct {
