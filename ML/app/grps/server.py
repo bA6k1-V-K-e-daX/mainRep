@@ -35,26 +35,33 @@ class DetectorService(detector_pb2_grpc.DetectorServicer):
         logger.info(f"[Query {query_id}] Received detection request: dir_path={dir_path}, targets={targets}")
 
         try:
-            save_path,detection_result = self.image_detection_usecase.execute(query_id=query_id,
-                                                             dir_path=dir_path,
-                                                             targets=targets,
-                                                             min_confidence=0.5
-                                                             )
-            # === Формирование ответа ===
-            class_counts = []
-            for cls, count in detection_result.items():
-                # Приводим count к int, даже если он numpy
-                class_counts.append(
-                    detector_pb2.ClassCount(class_name=cls, count=int(count))
+            save_path, counts, instance_infos = self.image_detection_usecase.execute(
+                query_id=query_id,
+                dir_path=dir_path,
+                targets=targets,
+                min_confidence=0.5,
+            )
+
+            # === Формирование списка InstanceInfo ===
+            grpc_instances = []
+            for info in instance_infos:
+                grpc_instances.append(
+                    detector_pb2.InstanceInfo(
+                        class_name=str(info.get("class_name", "")),
+                        confidience=float(info.get("confidence", "")),
+                        bbox=list(map(float, info.get("bbox", []))),
+                    )
                 )
-            total_objects = sum(detection_result.values())
-            
+
+            # Общее количество объектов
+            total_objects = int(sum(counts.values())) if counts else len(instance_infos)
+
             logger.info(f"[Query {query_id}] Detection successful. Found {total_objects} objects. Results saved to {save_path}")
 
             return detector_pb2.DetectionResponse(query_id=query_id,
                                                   result_path=save_path,
                                                   success=True,
-                                                  class_counts=class_counts,
+                                                  instance_info=grpc_instances,
                                                   total_objects=total_objects)
 
         except Exception as e:
