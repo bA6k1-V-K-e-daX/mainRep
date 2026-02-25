@@ -1,6 +1,6 @@
 from ultralytics import YOLO
 from pathlib import Path
-from app.utils.generate_report import save_summary_report
+from app.utils.generate_report import save_summary_report_v2
 from pathlib import Path
 from typing import List
 from app.utils.names_to_ids import class_names_to_ids
@@ -77,7 +77,7 @@ class ImageDetectionUseCase:
                 counts[cls_name] = counts.get(cls_name, 0) + 1
         if results:
             report_file = Path(save_path) / "detection_summary.txt"
-            save_summary_report(results, model.names, str(report_file))
+            save_summary_report_v2(results, model.names, str(report_file))
         else:
             print("⚠️ Нет обработанных изображений — отчёт не создан")
                 
