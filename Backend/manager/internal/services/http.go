@@ -1,6 +1,8 @@
 package httpservices
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
 	"manager/internal/models"
 	dbclientt "manager/internal/repository/database"
@@ -9,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -75,6 +78,7 @@ func (s *HTTPService) Login(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
 		return
 	}
+
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"user_id": user.ID,
 		"exp":     time.Now().Add(72 * time.Hour).Unix(),
@@ -91,6 +95,18 @@ func (s *HTTPService) Login(c *gin.Context) {
 
 func (s *HTTPService) Detect(c *gin.Context) {
 	userID := c.GetString("user_id")
+
+	payloadStr := c.PostForm("payload")
+	if payloadStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing 'payload' field in form data"})
+		return
+	}
+
+	var payload models.DetectPayload
+	if err := json.Unmarshal([]byte(payloadStr), &payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON in 'payload' field", "details": err.Error()})
+		return
+	}
 
 	queryID, err := s.dbClient.CreateQuery(c.Request.Context(), userID)
 	if err != nil {
@@ -119,6 +135,11 @@ func (s *HTTPService) Detect(c *gin.Context) {
 	}
 
 	files := form.File["files"]
+	if len(files) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No files provided"})
+		return
+	}
+
 	for _, file := range files {
 		destination := filepath.Join(sourceDir, file.Filename)
 		if err := c.SaveUploadedFile(file, destination); err != nil {
@@ -127,9 +148,7 @@ func (s *HTTPService) Detect(c *gin.Context) {
 		}
 	}
 
-	targets := c.PostFormArray("targets")
-
-	resp, err := s.mlClient.Detect(c.Request.Context(), queryID, queryBasePath, targets)
+	resp, err := s.mlClient.Detect(c.Request.Context(), queryID, queryBasePath, payload.Targets)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "ML Service failure", "details": err.Error()})
 		return
@@ -141,11 +160,47 @@ func (s *HTTPService) Detect(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"query_id":     resp.QueryId,
-		"status":       "Success",
-		"class_counts": resp.ClassCounts,
-		"total":        resp.TotalObjects,
-		"result_dir":   fmt.Sprintf("/results/%s/result/", queryStrID),
+		"query_id":      resp.QueryId,
+		"status":        "Success",
+		"instance_info": resp.InstanceInfo,
+		"total":         resp.TotalObjects,
+		"result_dir":    fmt.Sprintf("/results/%s/result/", queryStrID),
+	})
+}
+
+func (s *HTTPService) History(c *gin.Context) {
+	userID := c.GetString("user_id")
+
+	var req models.HistoryAnswer
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid payload"})
+		return
+	}
+
+	queries, err := s.dbClient.GetHistoryAnswers(c.Request.Context(), req.Quantity, userID, req.Flag)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get user queries"})
+		return
+	}
+	var response []models.HistoryResponse
+	for _, queryID := range queries {
+		reportPath := filepath.Join(s.volumePath, strconv.FormatInt(int64(queryID), 10), "result", "report.txt")
+		if _, err := os.Stat(reportPath); os.IsNotExist(err) {
+			reportPath = filepath.Join(s.volumePath, strconv.FormatInt(int64(queryID), 10), "result", "detection_summary.txt")
+		}
+
+		entries, err := ParseReport(reportPath)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Report not found or invalid format", "details": err.Error()})
+			return
+		}
+		response = append(response, models.HistoryResponse{
+			QueryId: queryID,
+			Entries: entries,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"queries": response,
 	})
 }
 
@@ -185,4 +240,52 @@ func (s *HTTPService) AuthMiddleware() gin.HandlerFunc {
 		c.Set("user_id", claims["user_id"])
 		c.Next()
 	}
+}
+
+func ParseReport(filePath string) ([]models.ReportEntry, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open report file: %w", err)
+	}
+	defer file.Close()
+
+	var entries []models.ReportEntry
+	scanner := bufio.NewScanner(file)
+
+	var currentFilename string
+	step := 0
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		if line == "---" {
+			step = 0
+			continue
+		}
+
+		if step == 0 {
+			currentFilename = line
+			step = 1
+		} else if step == 1 {
+			var detections []models.Detection
+			if err := json.Unmarshal([]byte(line), &detections); err != nil {
+				return nil, fmt.Errorf("failed to parse JSON for file %s: %w", currentFilename, err)
+			}
+
+			entries = append(entries, models.ReportEntry{
+				Filename:   currentFilename,
+				Detections: detections,
+			})
+
+			step = 2
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading report file: %w", err)
+	}
+
+	return entries, nil
 }

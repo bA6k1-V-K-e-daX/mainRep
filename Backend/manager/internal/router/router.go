@@ -22,10 +22,10 @@ func RouterRegister(r *gin.Engine, svc *httpservices.HTTPService, volumePath str
 		protected.Use(svc.AuthMiddleware())
 		{
 			protected.POST("/detect", svc.Detect)
+			protected.POST("/history", svc.History)
 		}
 	}
 
-	// Mount the static files server to safely expose user results
 	// Frontend usage: GET /results/{query_id}/result/i.jpg
 	r.StaticFS("/results", gin.Dir(volumePath, false))
 }

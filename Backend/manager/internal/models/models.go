@@ -14,3 +14,27 @@ type User struct {
 type AuthResponse struct {
 	Token string `json:"token"`
 }
+
+type DetectPayload struct {
+	Targets []string `json:"targets"`
+}
+
+type HistoryAnswer struct {
+	Quantity int64  `json:"quantity"`
+	Flag     string `json:"flag"`
+}
+
+type HistoryResponse struct {
+	QueryId int32         `json:"query_id"`
+	Entries []ReportEntry `json:"entries"`
+}
+
+type Detection struct {
+	Class      string    `json:"class"`
+	Confidence float64   `json:"confidence"`
+	BBox       []float64 `json:"bbox"`
+}
+type ReportEntry struct {
+	Filename   string      `json:"filename"`
+	Detections []Detection `json:"detections"`
+}

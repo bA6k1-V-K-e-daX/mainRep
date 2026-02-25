@@ -3,6 +3,7 @@ package dbclientt
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	database1 "manager/contract/database"
 	"manager/internal/models"
 	"strconv"
@@ -52,4 +53,20 @@ func (c *Client) CreateQuery(ctx context.Context, userID string) (int64, error) 
 		return 0, err
 	}
 	return queryID, nil
+}
+
+func (c *Client) GetHistoryAnswers(ctx context.Context, quantity int64, userID, flag string) ([]int32, error) {
+	reqData, _ := c.api.RequestOldDatas(ctx, &database1.RequestOldAnswersRequest{
+		Quantity: quantity,
+		UserID:   userID,
+		Flag:     flag,
+	})
+	if reqData.Message != "Success" {
+		return nil, fmt.Errorf("failed to get history answers: %s", reqData.Message)
+	}
+	var answers []int32
+	if err := json.Unmarshal(reqData.Data, &answers); err != nil {
+		return nil, err
+	}
+	return answers, nil
 }

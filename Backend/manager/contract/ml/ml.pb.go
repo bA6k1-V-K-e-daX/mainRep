@@ -7,11 +7,12 @@
 package ml1
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -86,7 +87,7 @@ type DetectionResponse struct {
 	QueryId       int64                  `protobuf:"varint,1,opt,name=query_id,json=queryId,proto3" json:"query_id,omitempty"`
 	ResultPath    string                 `protobuf:"bytes,2,opt,name=result_path,json=resultPath,proto3" json:"result_path,omitempty"`
 	Success       bool                   `protobuf:"varint,3,opt,name=success,proto3" json:"success,omitempty"`
-	ClassCounts   []*ClassCount          `protobuf:"bytes,4,rep,name=class_counts,json=classCounts,proto3" json:"class_counts,omitempty"` // [{"person": 3}, {"car": 2}]
+	InstanceInfo  []*InstanceInfo        `protobuf:"bytes,4,rep,name=instance_info,json=instanceInfo,proto3" json:"instance_info,omitempty"`
 	ErrorMessage  string                 `protobuf:"bytes,5,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
 	TotalObjects  int32                  `protobuf:"varint,6,opt,name=total_objects,json=totalObjects,proto3" json:"total_objects,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -144,9 +145,9 @@ func (x *DetectionResponse) GetSuccess() bool {
 	return false
 }
 
-func (x *DetectionResponse) GetClassCounts() []*ClassCount {
+func (x *DetectionResponse) GetInstanceInfo() []*InstanceInfo {
 	if x != nil {
-		return x.ClassCounts
+		return x.InstanceInfo
 	}
 	return nil
 }
@@ -165,28 +166,29 @@ func (x *DetectionResponse) GetTotalObjects() int32 {
 	return 0
 }
 
-type ClassCount struct {
+type InstanceInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ClassName     string                 `protobuf:"bytes,1,opt,name=class_name,json=className,proto3" json:"class_name,omitempty"`
-	Count         int32                  `protobuf:"varint,2,opt,name=count,proto3" json:"count,omitempty"`
+	Confidience   float32                `protobuf:"fixed32,2,opt,name=confidience,proto3" json:"confidience,omitempty"`
+	Bbox          []float32              `protobuf:"fixed32,3,rep,packed,name=bbox,proto3" json:"bbox,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ClassCount) Reset() {
-	*x = ClassCount{}
+func (x *InstanceInfo) Reset() {
+	*x = InstanceInfo{}
 	mi := &file_newp_ml_ml_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ClassCount) String() string {
+func (x *InstanceInfo) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ClassCount) ProtoMessage() {}
+func (*InstanceInfo) ProtoMessage() {}
 
-func (x *ClassCount) ProtoReflect() protoreflect.Message {
+func (x *InstanceInfo) ProtoReflect() protoreflect.Message {
 	mi := &file_newp_ml_ml_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -198,23 +200,30 @@ func (x *ClassCount) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ClassCount.ProtoReflect.Descriptor instead.
-func (*ClassCount) Descriptor() ([]byte, []int) {
+// Deprecated: Use InstanceInfo.ProtoReflect.Descriptor instead.
+func (*InstanceInfo) Descriptor() ([]byte, []int) {
 	return file_newp_ml_ml_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *ClassCount) GetClassName() string {
+func (x *InstanceInfo) GetClassName() string {
 	if x != nil {
 		return x.ClassName
 	}
 	return ""
 }
 
-func (x *ClassCount) GetCount() int32 {
+func (x *InstanceInfo) GetConfidience() float32 {
 	if x != nil {
-		return x.Count
+		return x.Confidience
 	}
 	return 0
+}
+
+func (x *InstanceInfo) GetBbox() []float32 {
+	if x != nil {
+		return x.Bbox
+	}
+	return nil
 }
 
 var File_newp_ml_ml_proto protoreflect.FileDescriptor
@@ -225,20 +234,20 @@ const file_newp_ml_ml_proto_rawDesc = "" +
 	"\x10DetectionRequest\x12\x19\n" +
 	"\bquery_id\x18\x01 \x01(\x03R\aqueryId\x12\x19\n" +
 	"\bdir_path\x18\x02 \x01(\tR\adirPath\x12\x18\n" +
-	"\atargets\x18\x03 \x03(\tR\atargets\"\xe8\x01\n" +
+	"\atargets\x18\x03 \x03(\tR\atargets\"\xec\x01\n" +
 	"\x11DetectionResponse\x12\x19\n" +
 	"\bquery_id\x18\x01 \x01(\x03R\aqueryId\x12\x1f\n" +
 	"\vresult_path\x18\x02 \x01(\tR\n" +
 	"resultPath\x12\x18\n" +
-	"\asuccess\x18\x03 \x01(\bR\asuccess\x123\n" +
-	"\fclass_counts\x18\x04 \x03(\v2\x10.grps.ClassCountR\vclassCounts\x12#\n" +
+	"\asuccess\x18\x03 \x01(\bR\asuccess\x127\n" +
+	"\rinstance_info\x18\x04 \x03(\v2\x12.grps.InstanceInfoR\finstanceInfo\x12#\n" +
 	"\rerror_message\x18\x05 \x01(\tR\ferrorMessage\x12#\n" +
-	"\rtotal_objects\x18\x06 \x01(\x05R\ftotalObjects\"A\n" +
+	"\rtotal_objects\x18\x06 \x01(\x05R\ftotalObjects\"c\n" +
+	"\fInstanceInfo\x12\x1d\n" +
 	"\n" +
-	"ClassCount\x12\x1d\n" +
-	"\n" +
-	"class_name\x18\x01 \x01(\tR\tclassName\x12\x14\n" +
-	"\x05count\x18\x02 \x01(\x05R\x05count2M\n" +
+	"class_name\x18\x01 \x01(\tR\tclassName\x12 \n" +
+	"\vconfidience\x18\x02 \x01(\x02R\vconfidience\x12\x12\n" +
+	"\x04bbox\x18\x03 \x03(\x02R\x04bbox2M\n" +
 	"\bDetector\x12A\n" +
 	"\x0eImageDetection\x12\x16.grps.DetectionRequest\x1a\x17.grps.DetectionResponseB\x12Z\x10sirius.ml.v1;ml1b\x06proto3"
 
@@ -258,10 +267,10 @@ var file_newp_ml_ml_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_newp_ml_ml_proto_goTypes = []any{
 	(*DetectionRequest)(nil),  // 0: grps.DetectionRequest
 	(*DetectionResponse)(nil), // 1: grps.DetectionResponse
-	(*ClassCount)(nil),        // 2: grps.ClassCount
+	(*InstanceInfo)(nil),      // 2: grps.InstanceInfo
 }
 var file_newp_ml_ml_proto_depIdxs = []int32{
-	2, // 0: grps.DetectionResponse.class_counts:type_name -> grps.ClassCount
+	2, // 0: grps.DetectionResponse.instance_info:type_name -> grps.InstanceInfo
 	0, // 1: grps.Detector.ImageDetection:input_type -> grps.DetectionRequest
 	1, // 2: grps.Detector.ImageDetection:output_type -> grps.DetectionResponse
 	2, // [2:3] is the sub-list for method output_type

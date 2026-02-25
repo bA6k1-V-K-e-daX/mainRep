@@ -68,3 +68,21 @@ func (r *DatabaseRepo) CreateQuery(ctx context.Context, userID string) (int64, e
 	err := r.db.QueryRowContext(ctx, query, userID).Scan(&queryID)
 	return queryID, err
 }
+
+func (r *DatabaseRepo) GetHistoryAnswers(ctx context.Context, quantity int64, userID, flag string) ([]int32, error) {
+	query := `SELECT id FROM queries WHERE user_id = $1 ORDER BY id DESC LIMIT $2`
+	var ids []int32
+	rows, err := r.db.QueryContext(ctx, query, userID, quantity)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var id int32
+		err := rows.Scan(&id)
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}

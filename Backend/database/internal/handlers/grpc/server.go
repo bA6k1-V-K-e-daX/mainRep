@@ -14,6 +14,7 @@ type DatabaseService interface {
 	CreateUser(ctx context.Context, user models.User) error
 	GetUserByLogin(ctx context.Context, login string) (models.User, error)
 	CreateQuery(ctx context.Context, userID string) (int64, error)
+	GetHistoryAnswers(ctx context.Context, quantity int64, userID, flag string) ([]int32, error)
 }
 
 type serverAPI struct {
@@ -69,5 +70,30 @@ func (s *serverAPI) AddNewData(ctx context.Context, req *database1.AddNewAnswerR
 
 	return &database1.AddNewAnswerResponse{
 		Message: fmt.Sprintf("%d", queryID),
+	}, nil
+}
+
+func (s *serverAPI) RequestOldDatas(ctx context.Context, req *database1.RequestOldAnswersRequest) (*database1.RequestOldAnswersResponse, error) {
+	var (
+		quantity int64  = req.GetQuantity()
+		userID   string = req.GetUserID()
+		flag     string = req.GetFlag()
+	)
+	if quantity == 0 || userID == "" || flag == "" {
+		return nil, fmt.Errorf("invalid request parameters")
+	}
+
+	answers, err := s.database.GetHistoryAnswers(ctx, quantity, userID, flag)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get history answers: %w", err)
+	}
+
+	responseData, err := json.Marshal(answers)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal answers: %w", err)
+	}
+	return &database1.RequestOldAnswersResponse{
+		Message: "Success",
+		Data:    responseData,
 	}, nil
 }
