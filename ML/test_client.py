@@ -1,10 +1,13 @@
 # app/grps/test_client.py
 import grpc
+from collections import defaultdict
 from app.grps.protos import detector_pb2, detector_pb2_grpc
-def print_detection_response(response: 'detector_pb2.DetectionResponse') -> None:
+
+
+def print_detection_response(response: "detector_pb2.DetectionResponse") -> None:
     """
-    Выводит все поля DetectionResponse в удобочитаемом формате.
-    Полезно для отладки или логирования.
+    Выводит все поля DetectionResponse в удобочитаемом формате
+    с учётом новой схемы: instance_info + bbox.
     """
     print("=" * 50)
     print("📄 DETECTION RESPONSE DETAILS")
@@ -15,14 +18,27 @@ def print_detection_response(response: 'detector_pb2.DetectionResponse') -> None
 
     if not response.success:
         print(f"Error Message:   {response.error_message}")
+        print("=" * 50)
+        return
+
+    print(f"Total Objects:   {response.total_objects}")
+
+    # Детальная информация по каждому найденному объекту
+    print("\nInstances:")
+    if response.instance_info:
+        for idx, inst in enumerate(response.instance_info, start=1):
+            bbox_str = (
+                f"[{', '.join(f'{v:.2f}' for v in inst.bbox)}]"
+                if inst.bbox
+                else "[]"
+            )
+            print(
+                f"  #{idx}: class={inst.class_name}, "
+                f"confidence={inst.confidience}, "
+                f"bbox={bbox_str}"
+            )
     else:
-        print(f"Total Objects:   {response.total_objects}")
-        print("Class Counts:")
-        if response.class_counts:
-            for item in response.class_counts:
-                print(f"  - {item.class_name}: {item.count}")
-        else:
-            print("  (no objects detected)")
+        print("  (no instance_info entries)")
 
     print("=" * 50)
 def main():
