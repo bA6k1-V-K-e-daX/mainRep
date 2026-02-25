@@ -1,0 +1,85 @@
+services:
+  # ── ML (gRPC-сервер детекции) ────────────────────────────────
+  ml:
+    build:
+      context: ./ML
+      dockerfile: Dockerfile
+    container_name: ml
+    ports:
+      - "2022:2022"
+    volumes:
+      - shared-volume:/app/volume
+    networks:
+      - peeky-net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import grpc; ch=grpc.insecure_channel('localhost:2022'); grpc.channel_ready_future(ch).result(timeout=5)\""]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # ── PostgreSQL ───────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: db
+    environment:
+      POSTGRES_USER: babkivkedah
+      POSTGRES_PASSWORD: tapki.com
+      POSTGRES_DB: projectml
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - peeky-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U babkivkedah -d projectml"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Database service (gRPC) ──────────────────────────────────
+  db_service:
+    build:
+      context: ./Backend/database
+      dockerfile: Dockerfile
+    container_name: db_service
+    ports:
+      - "2021:2021"
+    networks:
+      - peeky-net
+    depends_on:
+      ml:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Manager (HTTP API) ──────────────────────────────────────
+  manager:
+    build:
+      context: ./Backend/manager
+      dockerfile: Dockerfile
+    container_name: manager
+    ports:
+      - "8080:8080"
+    volumes:
+      - shared-volume:/app/volume
+    networks:
+      - peeky-net
+    depends_on:
+      ml:
+        condition: service_healthy
+      db_service:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  shared-volume:
+
+networks:
+  peeky-net:
+    driver: bridge
