@@ -1,7 +1,11 @@
 import "./App.css";
 import About from "./Components/About";
+import FAQs from "./Components/Faqs";
 import Greeting from "./Components/Greeting";
 import Header from "./Components/Header";
+import Rights from "./Components/Rights";
+import TryPeeky from "./Components/TryPeeky";
+import Yolo from "./Components/Yolo";
 
 function App() {
   return (
@@ -11,6 +15,10 @@ function App() {
         <Greeting />
       </div>
       <About />
+      <Yolo />
+      <FAQs />
+      <TryPeeky />
+      <Rights />
     </>
   );
 }
