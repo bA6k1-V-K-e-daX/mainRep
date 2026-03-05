@@ -4,19 +4,19 @@ const FAQItem = ({ question, answer, number }) => {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
-    <div className='border-b border-blue-800 pb-4 mb-4 last:mb-0'>
+    <div className='border-b border-blue-800 pb-2 mb-4 last:mb-0'>
       <button
-        className='flex justify-between items-center w-full text-white text-left py-4 focus:outline-none'
+        className='flex w-full text-white text-left py-4 focus:outline-none justify-between items-center'
         onClick={() => setIsOpen(!isOpen)}
       >
-        <span className='text-xl font-light'>
-          <span className='text-gray-500 mr-4'>
+        <div className='flex items-center'>
+          <span className='text-[24px] mr-4 font-thin'>
             {number.toString().padStart(2, "0")}
           </span>
-          {question}
-        </span>
+          <span className='text-[32px] font-thin'>{question}</span>
+        </div>
         <svg
-          className={`w-6 h-6 transform transition-transform duration-300 ${isOpen ? "rotate-180" : ""}`}
+          className={`w-8 h-8 transform transition-transform duration-300 ${isOpen ? "rotate-180" : ""}`}
           fill='none'
           stroke='currentColor'
           viewBox='0 0 24 24'
@@ -36,7 +36,7 @@ const FAQItem = ({ question, answer, number }) => {
         }`}
       >
         <div className='py-2 pl-12 text-gray-300'>
-          <p>{answer}</p>
+          <h5>{answer}</h5>
         </div>
       </div>
     </div>

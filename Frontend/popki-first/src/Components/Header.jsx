@@ -1,4 +1,5 @@
 import Button from "./Button";
+import { Link } from "react-router-dom";
 
 export default function Header() {
   return (
@@ -8,14 +9,19 @@ export default function Header() {
           <p className='m-0 text-2xl font-extralight tracking-normal'>Peeky</p>
         </div>
         <div className='flex gap-3.5'>
-          <Button
-            title='Войти'
-            className='w-20 rounded-lg hover:border-0 hover:bg-[#4500F9]'
-          />
-          <Button
-            title='Начать'
-            className='w-20 rounded-lg bg-[#4500F9] border-0 hover:bg-transparent hover:border'
-          />
+          <Link to='/signin'>
+            <Button
+              title='Войти'
+              className='w-20 rounded-lg hover:border-0 hover:bg-[#4500F9]'
+            />
+          </Link>
+
+          <Link to='/registr'>
+            <Button
+              title='Начать'
+              className='w-20 rounded-lg bg-[#4500F9] border-0 hover:bg-transparent hover:border'
+            />
+          </Link>
         </div>
       </div>
     </div>

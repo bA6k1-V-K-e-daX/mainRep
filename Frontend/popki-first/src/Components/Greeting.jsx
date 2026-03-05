@@ -10,7 +10,6 @@ export default function Greeting() {
         </div>
         <div className='flex flex-col w-126.75 items-start justify-end'>
           <p className='text-[22px] font-normal mb-5.25'>
-            Peeky — это сервис компьютерного зрения на базе нейросетей.
             Мгновенная детекция, классификация и разметка объектов для вашего
             бизнеса. Загружаете файл — получаете JSON с результатами.
           </p>
