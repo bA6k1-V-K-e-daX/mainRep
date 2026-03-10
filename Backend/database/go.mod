@@ -3,7 +3,7 @@ module database
 go 1.24.2
 
 require (
-	github.com/PrototypeSirius/ruglogger v0.0.0-20260124155947-d30e99226478
+	github.com/PrototypeSirius/ruglogger v0.0.0-20260310125159-8ce070a1a3ba
 	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/ilyakaznacheev/cleanenv v1.5.0
 	github.com/lib/pq v1.10.9

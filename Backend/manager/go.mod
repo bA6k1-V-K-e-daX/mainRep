@@ -3,7 +3,7 @@ module manager
 go 1.24.2
 
 require (
-	github.com/PrototypeSirius/ruglogger v0.0.0-20260124155947-d30e99226478
+	github.com/PrototypeSirius/ruglogger v0.0.0-20260310125159-8ce070a1a3ba
 	github.com/gin-contrib/cors v1.7.6
 	github.com/gin-gonic/gin v1.11.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
