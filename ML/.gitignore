@@ -83,7 +83,6 @@ docker-compose.override.yml
 *.hdf5
 *.npy
 *.npz
-*.pt
 *.pth
 *.joblib
 
