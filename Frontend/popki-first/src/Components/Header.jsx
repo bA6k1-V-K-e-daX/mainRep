@@ -6,7 +6,11 @@ export default function Header() {
     <div className='flex justify-center'>
       <div className='w-123.75 h-13 flex items-center justify-between my-8.25 border border-[#4500F9] rounded-2xl px-3.75 py-2.75'>
         <div className='flex items-center'>
-          <p className='m-0 text-2xl font-extralight tracking-normal'>Peeky</p>
+          <Link to='/'>
+            <p className='m-0 text-white text-2xl font-extralight tracking-normal'>
+              Peeky
+            </p>
+          </Link>
         </div>
         <div className='flex gap-3.5'>
           <Link to='/signin'>
