@@ -17,6 +17,10 @@ const baseURL = "http://localhost:8080/api/v1"
 func main() {
 	fmt.Println("=== Starting E2E Backend Test ===")
 
+	if !waitForServer(3 * time.Second) {
+		fmt.Println("[X] Aborting test due to server unavailability.")
+		return
+	}
 	timestamp := time.Now().Unix()
 	username := fmt.Sprintf("testuser_%d", timestamp)
 	password := "securepassword123"
@@ -39,6 +43,19 @@ func main() {
 	detect(token)
 
 	fmt.Println("\n=== E2E Test Finished ===")
+}
+
+func waitForServer(timeout time.Duration) bool {
+	client := http.Client{Timeout: timeout}
+	for i := 0; i < 6; i++ {
+		resp, err := client.Get("http://localhost:8080/health")
+		if err == nil && resp.StatusCode == http.StatusOK {
+			return true
+		}
+		fmt.Printf("[!] Waiting for server... (%d/6)\n", i+1)
+		time.Sleep(5 * time.Second)
+	}
+	return false
 }
 
 func register(username, password string) {
@@ -117,55 +134,68 @@ func history(token string) {
 
 func detect(token string) {
 	filesToUpload := []string{
-		"testdata/test1.jpg",
-		"testdata/test2.jpg",
+		`C:\Users\komar\OneDrive\Рабочий стол\projectM\mainRep\Backend\test\testdata\test1.jpg`,
+		`C:\Users\komar\OneDrive\Рабочий стол\projectM\mainRep\Backend\test\testdata\test2.jpg`,
 	}
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
-	jsonPayload := `{"targets": ["person", "car", "apple"]}`
-	_ = writer.WriteField("payload", jsonPayload)
+	jsonPayload := `{"targets":["person","car","apple"]}`
+	if err := writer.WriteField("payload", jsonPayload); err != nil {
+		fmt.Printf("    [X] Failed to write payload field: %v\n", err)
+		return
+	}
 
 	filesAttached := 0
 	for _, filePath := range filesToUpload {
 		file, err := os.Open(filePath)
 		if err != nil {
-			fmt.Printf("    [!] Warning: Could not open %s (Did you put images in the testdata folder?)\n", filePath)
+			fmt.Printf("    [X] Failed to open file %s: %v\n", filePath, err)
 			continue
 		}
-		defer file.Close()
 
 		part, err := writer.CreateFormFile("files", filepath.Base(filePath))
 		if err != nil {
+			file.Close()
 			fmt.Printf("    [X] Failed to create form file for %s: %v\n", filePath, err)
 			continue
 		}
 
 		if _, err := io.Copy(part, file); err != nil {
+			file.Close()
 			fmt.Printf("    [X] Failed to copy file content for %s: %v\n", filePath, err)
 			continue
 		}
+
+		file.Close()
 		filesAttached++
 		fmt.Printf("    -> Attached file: %s\n", filePath)
 	}
 
 	if filesAttached == 0 {
 		fmt.Println("    [X] Aborting detect request: No files were successfully attached.")
-		fmt.Println("    [i] Please place some test images in the 'testdata' directory.")
 		return
 	}
 
-	writer.Close()
+	if err := writer.Close(); err != nil {
+		fmt.Printf("    [X] Failed to close multipart writer: %v\n", err)
+		return
+	}
 
-	req, _ := http.NewRequest(http.MethodPost, baseURL+"/detect", body)
+	req, err := http.NewRequest(http.MethodPost, baseURL+"/detect", body)
+	if err != nil {
+		fmt.Printf("    [X] Failed to create request: %v\n", err)
+		return
+	}
+
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	req.Header.Set("Authorization", "Bearer "+token)
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Printf("[X] Request failed: %v\n", err)
+		fmt.Printf("    [X] Request failed: %v\n", err)
 		return
 	}
 	defer resp.Body.Close()
@@ -173,9 +203,8 @@ func detect(token string) {
 	bodyBytes, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode == http.StatusInternalServerError {
-		fmt.Printf("    -> Received 500 Internal Server Error (Expected if ML service is down).\n")
+		fmt.Printf("    -> Received 500 Internal Server Error.\n")
 		fmt.Printf("    -> Response: %s\n", string(bodyBytes))
-		fmt.Println("    -> Note: If the error mentions 'ML Service failure', the manager saved the files to volume/ successfully!")
 	} else if resp.StatusCode == http.StatusOK {
 		fmt.Printf("    -> Success! ML Service responded: %s\n", string(bodyBytes))
 	} else {

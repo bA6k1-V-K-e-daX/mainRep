@@ -65,14 +65,12 @@ venv.bak/
 
 # ==================== DOCKER ====================
 # Docker
-Dockerfile
 docker-compose.yml
 .dockerignore
 docker-compose.*.yml
 
 # Docker build artifacts
 *.dockerignore
-Dockerfile.*
 docker-compose.override.yml
 
 # ==================== ML / DATA SCIENCE ====================
@@ -85,7 +83,6 @@ docker-compose.override.yml
 *.hdf5
 *.npy
 *.npz
-*.pt
 *.pth
 *.joblib
 

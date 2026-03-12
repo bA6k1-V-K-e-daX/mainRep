@@ -15,4 +15,4 @@ client:
 
   ml:
     host: ml
-    port: 551
+    port: 50051

@@ -26,8 +26,8 @@ class ImageDetectionUseCase:
 
         # Подготовка путей
         base = Path(dir_path)
-        source_path = str(base / "detect" / f"query_{query_id}" / "source")
-        save_path = str(base / "detect" / f"query_{query_id}" / "result")
+        source_path = str(base / str(query_id) / "source")
+        save_path = str(base / str(query_id) / "result")
 
         # Загрузка модели и преобразование целей
         model = self.model_loader.get_model()

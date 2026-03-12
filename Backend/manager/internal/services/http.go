@@ -96,15 +96,29 @@ func (s *HTTPService) Login(c *gin.Context) {
 func (s *HTTPService) Detect(c *gin.Context) {
 	userID := c.GetString("user_id")
 
-	payloadStr := c.PostForm("payload")
-	if payloadStr == "" {
+	form, err := c.MultipartForm()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Failed to parse multipart data",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	payloadValues := form.Value["payload"]
+	if len(payloadValues) == 0 || payloadValues[0] == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing 'payload' field in form data"})
 		return
 	}
 
+	payloadStr := payloadValues[0]
+
 	var payload models.DetectPayload
 	if err := json.Unmarshal([]byte(payloadStr), &payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON in 'payload' field", "details": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Invalid JSON in 'payload' field",
+			"details": err.Error(),
+		})
 		return
 	}
 
@@ -128,12 +142,6 @@ func (s *HTTPService) Detect(c *gin.Context) {
 		return
 	}
 
-	form, err := c.MultipartForm()
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse multipart data"})
-		return
-	}
-
 	files := form.File["files"]
 	if len(files) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No files provided"})
@@ -148,7 +156,7 @@ func (s *HTTPService) Detect(c *gin.Context) {
 		}
 	}
 
-	resp, err := s.mlClient.Detect(c.Request.Context(), queryID, queryBasePath, payload.Targets)
+	resp, err := s.mlClient.Detect(c.Request.Context(), queryID, s.volumePath, payload.Targets)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "ML Service failure", "details": err.Error()})
 		return
