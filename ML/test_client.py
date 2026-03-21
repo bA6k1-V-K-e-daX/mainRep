@@ -1,6 +1,5 @@
 # app/grps/test_client.py
 import grpc
-from collections import defaultdict
 from app.grps.protos import detector_pb2, detector_pb2_grpc
 
 

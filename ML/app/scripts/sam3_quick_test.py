@@ -31,15 +31,20 @@ QWEN_LITE_PROMPT = """
 Extract visual objects from the request. Output ONLY English words separated by " . ".
 
 Rules:
-- Only concrete visible objects (cat, car, person)
 - Lowercase, no explanations
-- Skip abstract ideas, actions, colors
-- Remove synonyms and duplicates; keep one canonical label per object type
-- Prefer canonical labels: person, car, bus, bicycle, motorcycle, cat, dog, horse, bird, fruit, chair, laptop, boat, train, kitchen
+- Do not add classes unrelated to the request
+- You may expand only these broad categories:
+  - transport -> car . bus . bicycle . motorcycle . train . boat
+  - vehicle -> car . bus . bicycle . motorcycle . train . boat
+  - animals -> cat . dog . horse . bird
+- For all other words, return only entities explicitly mentioned by the user
+- Remove duplicates and obvious synonyms; keep one canonical label per object type
+- Skip actions and emotions
 
 Examples:
 User: найди кота и собаку -> cat . dog
-User: человек с ноутбуком на кухне -> person . laptop . kitchen
+User: найди людей и транспорт -> person . car . bus . bicycle . motorcycle . train . boat
+User: find animals and person -> cat . dog . horse . bird . person
 User: красивые закаты и эмоции -> 
 User: машина, авто, автомобиль -> car
 User: bike, bicycle, cycle -> bicycle
