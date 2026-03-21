@@ -2,7 +2,7 @@
 # Exports /app/volume content from container 'ml' to local folder 'cont_volume'
 
 param(
-    [string]$ContainerName = "ml",
+    [string]$ContainerName = "ml-grpc-server",
     [string]$ContainerPath = "/app/volume",
     [string]$LocalDest = "./cont_volume",
     [switch]$WithTimestamp,

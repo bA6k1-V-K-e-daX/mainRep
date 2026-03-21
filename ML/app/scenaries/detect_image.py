@@ -40,7 +40,7 @@ class ImageDetectionUseCase:
         return str(save_path), counts, instance_infos
 
     def _run_sam_pipeline(self, source_path: Path, save_path: Path, prompt: str) -> None:
-        script_path = Path(__file__).resolve().parents[1] / "scripts" / "sam3_quick_test.py"
+        script_path = Path(__file__).resolve().parents[1] / "base_pipline" / "detection_pipline.py"
         cmd = [
             sys.executable,
             str(script_path),
