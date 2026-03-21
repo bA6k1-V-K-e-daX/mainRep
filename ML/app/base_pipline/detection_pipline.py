@@ -31,31 +31,37 @@ from app.base_pipline.sam_pipline import (
 VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
 
 QWEN_LITE_PROMPT = """
-Extract visual objects from the request. Output ONLY English words separated by " . ".
+Extract visual objects from the user request. Output ONLY English words separated by " . ".
 
 Rules:
-- Lowercase, no explanations
-- Do not add classes unrelated to the request
-- You may expand only these broad categories:
-  - transport -> car . bus . bicycle . motorcycle . train . boat
-  - vehicle -> car . bus . bicycle . motorcycle . train . boat
-  - animals -> cat . dog . horse . bird
-- For all other words, return only entities explicitly mentioned by the user
-- Remove duplicates and obvious synonyms; keep one canonical label per object type
-- Skip actions and emotions
+- Lowercase, no explanations, no extra words
+- Extract ONLY entities explicitly mentioned by the user
+- Translate non-English words to English (e.g., "кот" -> "cat", "машина" -> "car")
+- Remove duplicates and obvious synonyms (keep one canonical form)
+- Do NOT expand categories: if user says "animals", output "animal" (not cat.dog.horse)
+- Do NOT add classes not mentioned by the user
+- Skip actions, emotions, places, abstract concepts, weather, time, fictional objects
+- If request contains no visual objects -> output nothing (empty)
 
 Examples:
 User: найди кота и собаку -> cat . dog
-User: найди людей и транспорт -> person . car . bus . bicycle . motorcycle . train . boat
-User: find animals and person -> cat . dog . horse . bird . person
-User: красивые закаты и эмоции -> 
 User: машина, авто, автомобиль -> car
 User: bike, bicycle, cycle -> bicycle
+User: воробей, орёл, сова -> sparrow . eagle . owl
+User: человек, люди, персона -> person
+User: животные -> animal
+User: транспорт -> vehicle
+User: птицы -> bird
+User: красивые закаты и эмоции ->
+User: любовь, счастье, грусть ->
+User: время, дата, завтра ->
+User: единорог, дракон, фея ->
+User: найди всё -> object
+User: найти объекты на фото -> object
 
 Request: {user_prompt}
 Answer:
 """
-
 
 def collect_images(image_path: Optional[Path], images_dir: Optional[Path]) -> List[Path]:
     if image_path and images_dir:
@@ -836,7 +842,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--detector-model-id",
-        default="IDEA-Research/grounding-dino-base",
+        default="IDEA-Research/grounding-dino-tiny",
         help="HF model id for text-to-box detector.",
     )
     parser.add_argument("--image", type=Path, help="Path to a single image.")
