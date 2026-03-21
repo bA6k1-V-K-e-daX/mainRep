@@ -1,21 +1,15 @@
-from ultralytics import YOLO
+import json
+import subprocess
+import sys
 from pathlib import Path
-from app.utils.generate_report import save_summary_report_v2
-from pathlib import Path
-from typing import List
-from app.utils.names_to_ids import class_names_to_ids
-from app.core.di_container import ServiceContainer
+from typing import Tuple
 
 class ImageDetectionUseCase:
-    def __init__(self):
-        container = ServiceContainer()
-        self.model_loader = container.model_loader
-
     def execute(
         self,
         query_id: int,
         dir_path: str,
-        targets: List[str],
+        prompt: str,
         min_confidence: float = 0.5
     ) -> tuple[str, dict, list[dict]]:
         # Валидация
@@ -24,77 +18,91 @@ class ImageDetectionUseCase:
         if not Path(dir_path).exists():
             raise FileNotFoundError(f"Path does not exist: {dir_path}")
 
-        # Подготовка путей
+        # Подготовка путей (совместимо с текущей структурой volume/<query_id>/{source,result})
         base = Path(dir_path)
-        source_path = str(base / str(query_id) / "source")
-        save_path = str(base / str(query_id) / "result")
+        source_path = base / str(query_id) / "source"
+        save_path = base / str(query_id) / "result"
 
-        # Загрузка модели и преобразование целей
-        model = self.model_loader.get_model()
-        target_ids = class_names_to_ids(targets) if targets else None
+        if not source_path.exists():
+            raise FileNotFoundError(f"Source path does not exist: {source_path}")
 
-        # Запуск детекции
-        counts, instance_infos = self._detect_image(
+        effective_prompt = (prompt or "").strip()
+        if not effective_prompt:
+            raise ValueError("prompt cannot be empty")
+
+        self._run_sam_pipeline(
             source_path=source_path,
             save_path=save_path,
-            target_ids=target_ids,
-            min_confidence=min_confidence,
-            model=model
+            prompt=effective_prompt,
         )
-        return save_path, counts, instance_infos
-           
 
-    def _detect_image(self, source_path: str, save_path: str, target_ids=None, min_confidence=0.5, model: YOLO = None):
-        """
-        Выполняет детекцию на одном изображении,
-        а также сохраняет результат в папку results
-        """
-        results = model(
-            source_path,
-            conf=min_confidence,
-            classes=target_ids,      # ← фильтрация на уровне модели
-            save=True,
-            project=Path(save_path).parent, 
-            name=Path(save_path).name, 
-            exist_ok=True,
-            verbose=False,
-        )
-        
-        if results:
-            print(f"💾 Файл сохранён в: {results[0].save_dir}")
-            print(f"📦 Найдено боксов: {len(results[0].boxes)}")
-        else:
-            print("⚠️ Нет результатов")
+        counts, instance_infos = self._read_report(save_path / "report.txt")
+        return str(save_path), counts, instance_infos
 
-        # Собираем результаты — считаем по классам и собираем подробности по каждому боксу
+    def _run_sam_pipeline(self, source_path: Path, save_path: Path, prompt: str) -> None:
+        script_path = Path(__file__).resolve().parents[1] / "scripts" / "sam3_quick_test.py"
+        cmd = [
+            sys.executable,
+            str(script_path),
+            "--images-dir",
+            str(source_path),
+            "--query",
+            prompt,
+            "--query-parser",
+            "llm",
+            "--output-dir",
+            str(save_path),
+        ]
+        completed = subprocess.run(cmd, capture_output=True, text=True)
+        if completed.returncode != 0:
+            raise RuntimeError(
+                "SAM pipeline failed.\n"
+                f"stdout:\n{completed.stdout}\n"
+                f"stderr:\n{completed.stderr}"
+            )
+
+        # Query guardrail in new pipeline: stop on bad query.
+        query_error = save_path / "query_error.json"
+        if query_error.exists():
+            payload = json.loads(query_error.read_text(encoding="utf-8"))
+            raise ValueError(payload.get("message", "Invalid query for class extraction"))
+
+    def _read_report(self, report_path: Path) -> Tuple[dict, list[dict]]:
         counts: dict[str, int] = {}
-        names = model.names
         instance_infos: list[dict] = []
+        if not report_path.exists():
+            return counts, instance_infos
 
-        for result in results:
-            for box in result.boxes:
-                cls_id = int(box.cls.item())
-                cls_name = names[cls_id]
+        lines = report_path.read_text(encoding="utf-8").splitlines()
+        idx = 0
+        while idx < len(lines):
+            img_name = lines[idx].strip()
+            idx += 1
+            if not img_name:
+                continue
+            if idx >= len(lines):
+                break
+            json_line = lines[idx].strip()
+            idx += 1
+            try:
+                detections = json.loads(json_line) if json_line else []
+            except json.JSONDecodeError:
+                detections = []
 
-                # Счётчик по классам
+            for det in detections:
+                cls_name = str(det.get("class", "unknown"))
+                conf = float(det.get("confidence", 0.0))
+                bbox = [float(v) for v in det.get("bbox", [])]
                 counts[cls_name] = counts.get(cls_name, 0) + 1
-
-                # Детальная информация по конкретному боксу
-                confidence = float(box.conf.item()) if hasattr(box, "conf") else None
-                bbox = box.xyxy[0].tolist() if hasattr(box, "xyxy") else None
-
                 instance_infos.append(
                     {
                         "class_name": cls_name,
-                        "count": 1,
-                        "confidence": confidence,
-                        "bbox": [float(v) for v in bbox] if bbox is not None else [],
+                        "confidence": conf,
+                        "bbox": bbox,
                     }
                 )
-        if results:
-            report_file = Path(save_path) / "report.txt"
-            save_summary_report_v2(results, model.names, str(report_file))
-        else:
-            print("⚠️ Нет обработанных изображений — отчёт не создан")
+
+            if idx < len(lines) and lines[idx].strip() == "---":
+                idx += 1
 
         return counts, instance_infos

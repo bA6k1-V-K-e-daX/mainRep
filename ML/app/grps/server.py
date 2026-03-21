@@ -24,21 +24,24 @@ class DetectorService(detector_pb2_grpc.DetectorServicer):
     def ImageDetection(self, request: detector_pb2.DetectionRequest, context) -> detector_pb2.DetectionResponse:
         """
         Новая реализация метода:
-        - Принимает query_id, dir_path, targets
+        - Принимает query_id, dir_path, prompt
         - Запускает детекцию по директории (или файлу)
         - Возвращает result_path, query_id, статистику и статус
         """
         query_id = int(request.query_id)
         dir_path = request.dir_path
-        targets = list(request.targets) 
+        prompt = request.prompt
 
-        logger.info(f"[Query {query_id}] Received detection request: dir_path={dir_path}, targets={targets}")
+        logger.info(
+            f"[Query {query_id}] Received detection request: dir_path={dir_path}, "
+            f"prompt={prompt!r}"
+        )
 
         try:
             save_path, counts, instance_infos = self.image_detection_usecase.execute(
                 query_id=query_id,
                 dir_path=dir_path,
-                targets=targets,
+                prompt=prompt,
                 min_confidence=0.5,
             )
 
