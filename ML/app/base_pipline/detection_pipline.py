@@ -327,15 +327,40 @@ def build_effective_prompt(query: str, label_dictionary: str) -> str:
     return normalize_specific_query_to_prompt(query)
 
 
-def save_outputs(image: Image.Image, mask_uint8: np.ndarray, out_prefix: Path) -> Tuple[Path, Path]:
+def save_outputs_colored(
+    image: Image.Image,
+    mask_uint8: np.ndarray,
+    out_prefix: Path,
+    detections: List[Dict[str, object]] = None,
+    individual_masks: List[np.ndarray] = None
+) -> Tuple[Path, Path]:
+    """Сохраняет маску и оверлей, где каждый объект своего цвета."""
     mask_img = Image.fromarray(mask_uint8, mode="L")
     mask_path = out_prefix.with_name(f"{out_prefix.name}_mask.png")
     overlay_path = out_prefix.with_name(f"{out_prefix.name}_overlay.png")
-
-    red = Image.new("RGB", image.size, (255, 40, 40))
-    alpha = Image.fromarray((mask_uint8 > 0).astype(np.uint8) * 110, mode="L")
+    
     overlay = image.convert("RGB").copy()
-    overlay.paste(red, mask=alpha)
+    draw = ImageDraw.Draw(overlay)
+    
+    if individual_masks and detections and len(individual_masks) == len(detections):
+        color_mask = np.zeros((image.height, image.width, 3), dtype=np.uint8)
+        
+        for idx, (det, box_mask) in enumerate(zip(detections, individual_masks)):
+            color = get_distinct_color(idx)
+            color_mask[box_mask > 0] = color
+            # Рамки и подписи убраны - только цветная маска
+        
+        color_mask_img = Image.fromarray(color_mask, mode="RGB")
+        color_mask_path = out_prefix.with_name(f"{out_prefix.name}_color_mask.png")
+        color_mask_img.save(color_mask_path)
+        
+        alpha = Image.fromarray((mask_uint8 > 0).astype(np.uint8) * 140, mode="L")
+        color_mask_overlay = Image.fromarray(color_mask, mode="RGB")
+        overlay.paste(color_mask_overlay, mask=alpha)
+    else:
+        red = Image.new("RGB", image.size, (255, 40, 40))
+        alpha = Image.fromarray((mask_uint8 > 0).astype(np.uint8) * 110, mode="L")
+        overlay.paste(red, mask=alpha)
 
     mask_img.save(mask_path)
     overlay.save(overlay_path)
@@ -378,14 +403,26 @@ def detect_boxes_from_text(
     if not prompt.endswith("."):
         prompt = f"{prompt}."
 
+    # 1. Получаем данные от процессора (объект BatchEncoding)
     inputs = detector_processor(images=image, text=prompt, return_tensors="pt").to(device)
+    
+    # 2. ВАЖНО: Сохраняем input_ids ДО превращения inputs в обычный словарь
+    input_ids = inputs["input_ids"]
+    
+    # 3. ИЗМЕНЕНИЯ ДЛЯ FP16 (превращает BatchEncoding в dict)
+    if device == "cuda":
+        inputs = {k: v.half() if v.dtype == torch.float32 else v for k, v in inputs.items()}
+    
+    # 4. Запуск модели
     with torch.no_grad():
-        outputs = detector_model(**inputs)
+        with torch.autocast(device_type=device, dtype=torch.float16):
+            outputs = detector_model(**inputs)
 
+    # 5. Пост-процессинг (используем сохранённую переменную input_ids)
     try:
         results = detector_processor.post_process_grounded_object_detection(
             outputs=outputs,
-            input_ids=inputs.input_ids,
+            input_ids=input_ids,  # ✅ ИСПРАВЛЕНО: используем переменную, а не inputs.input_ids
             threshold=box_threshold,
             text_threshold=text_threshold,
             target_sizes=[image.size[::-1]],
@@ -394,11 +431,12 @@ def detect_boxes_from_text(
         # Compatibility fallback for versions that still expect box_threshold.
         results = detector_processor.post_process_grounded_object_detection(
             outputs=outputs,
-            input_ids=inputs.input_ids,
+            input_ids=input_ids,  # ✅ ИСПРАВЛЕНО: используем переменную, а не inputs.input_ids
             box_threshold=box_threshold,
             text_threshold=text_threshold,
             target_sizes=[image.size[::-1]],
         )
+        
     if not results:
         return []
 
@@ -458,7 +496,7 @@ def save_boxes_preview(
 
 def save_empty_segmentation_artifacts(image: Image.Image, out_prefix: Path) -> Tuple[Path, Path]:
     empty_mask = np.zeros((image.height, image.width), dtype=np.uint8)
-    return save_outputs(image, empty_mask, out_prefix)
+    return save_outputs_colored(image, empty_mask, out_prefix, detections=None, individual_masks=None)
 
 
 def save_detections_json(
@@ -704,7 +742,17 @@ def run(
     detector_model = AutoModelForZeroShotObjectDetection.from_pretrained(detector_model_id).to(device)
     detector_model.eval()
 
+    # --- ДОБАВИТЬ ЭТОТ БЛОК ДЛЯ FP16 ---
+    if device == "cuda":
+        detector_model = detector_model.half()
+    # -----------------------------------
+
     sam_processor, sam_model = load_sam_components(sam_model_id=sam_model_id, device=device)
+
+    # --- ДОБАВИТЬ ЭТОТ БЛОК ДЛЯ FP16 ---
+    if device == "cuda":
+        sam_model = sam_model.half()
+    # -----------------------------------
 
     for image_path in image_files:
         original_image = Image.open(image_path).convert("RGB")
@@ -803,38 +851,82 @@ def run(
                 f"(raw={len(raw_detections)}, dropped={len(dropped)})."
             )
             out_prefix = build_image_output_prefix(output_dir, image_path)
-            save_detections_json(raw_detections, image.size, out_prefix)
+            save_detections_json(raw_detections, original_size, out_prefix)
             save_boxes_preview(image, [], out_prefix, save_when_empty=True)
             save_empty_segmentation_artifacts(original_image, out_prefix)
             append_report_block(report_path, image_path.name, [])
             continue
 
         out_prefix = build_image_output_prefix(output_dir, image_path)
-        save_boxes_preview(image, detections, out_prefix)
-        save_detections_json(raw_detections, image.size, out_prefix)
+        save_boxes_preview(image, detections, out_prefix)  # Для превью оставляем уменьшенное
+        save_detections_json(raw_detections, original_size, out_prefix)
 
-        merged_mask, report_detections = build_merged_mask_and_report(
-            sam_processor=sam_processor,
-            sam_model=sam_model,
-            image=image,
-            detections=detections,
-            device=device,
-        )
+        # Запуск SAM (на уменьшенном изображении с уменьшенными боксами)
+        if device == "cuda":
+            with torch.autocast(device_type=device, dtype=torch.float16):
+                merged_mask, report_detections, individual_masks = build_merged_mask_and_report(
+                    sam_processor=sam_processor,
+                    sam_model=sam_model,
+                    image=image,  # уменьшенное
+                    detections=detections,  # ещё НЕ масштабированные
+                    device=device,
+                )
+        else:
+            merged_mask, report_detections, individual_masks = build_merged_mask_and_report(
+                sam_processor=sam_processor,
+                sam_model=sam_model,
+                image=image,
+                detections=detections,
+                device=device,
+            )
 
+        # Масштабируем маски к оригиналу
         mask_uint8 = merged_mask
         if image.size != original_size:
             mask_uint8 = np.array(
                 Image.fromarray(mask_uint8, mode="L").resize(original_size, Image.Resampling.NEAREST)
             )
+            individual_masks = [
+                np.array(Image.fromarray(m, mode="L").resize(original_size, Image.Resampling.NEAREST))
+                for m in individual_masks
+            ]
+            
+            # Масштабируем боксы к оригиналу (ПОСЛЕ SAM!)
+            scale_x = original_size[0] / image.size[0]
+            scale_y = original_size[1] / image.size[1]
+            scaled_detections = []
+            for det in detections:
+                box = det["box"]
+                scaled_box = [
+                    box[0] * scale_x,
+                    box[1] * scale_y,
+                    box[2] * scale_x,
+                    box[3] * scale_y,
+                ]
+                scaled_detections.append({**det, "box": scaled_box})
+            detections = scaled_detections
 
-        mask_path, overlay_path = save_outputs(original_image, mask_uint8, out_prefix)
+        mask_path, overlay_path = save_outputs_colored(
+            original_image,
+            mask_uint8,
+            out_prefix,
+            detections,  # теперь отмасштабированные
+            individual_masks
+        )
+        
         append_report_block(report_path, image_path.name, report_detections)
         top = detections[0]
         print(
             f"[OK] {image_path.name} -> {mask_path.name}, {overlay_path.name}, "
             f"boxes={len(detections)}, top={top.get('label')} score={top.get('score')}"
         )
-
+        
+        # --- ДОБАВИТЬ ЭТОТ БЛОК ---
+        if device == "cuda":
+            torch.cuda.empty_cache()
+        # --------------------------
+        
+    # Выход из цикла for
     print(f"[DONE] Results saved to: {output_dir}")
     print(f"[DONE] Report saved to: {report_path}")
 
@@ -928,7 +1020,7 @@ def main() -> None:
     parser.add_argument(
         "--max-boxes",
         type=int,
-        default=8,
+        default=20,
         help="Maximum number of boxes to pass to SAM after filtering.",
     )
     parser.add_argument(
@@ -1160,7 +1252,32 @@ def main() -> None:
         resize_mode=args.resize_mode,
         llm_trace=llm_trace,
     )
-
+def get_distinct_color(index: int) -> Tuple[int, int, int]:
+    """Генерирует уникальный цвет для каждого объекта по индексу."""
+    # Используем золотое сечение для равномерного распределения цветов
+    golden_ratio = 0.618033988749895
+    hue = (index * golden_ratio) % 1.0
+    
+    # Конвертация HSV в RGB вручную (чтобы не тащить лишние библиотеки)
+    h = hue
+    s = 0.8
+    v = 0.9
+    
+    i = int(h * 6.0)
+    f = (h * 6.0) - i
+    p = v * (1.0 - s)
+    q = v * (1.0 - s * f)
+    t = v * (1.0 - s * (1.0 - f))
+    i %= 6
+    
+    if i == 0: r, g, b = v, t, p
+    elif i == 1: r, g, b = q, v, p
+    elif i == 2: r, g, b = p, v, t
+    elif i == 3: r, g, b = p, q, v
+    elif i == 4: r, g, b = t, p, v
+    elif i == 5: r, g, b = v, p, q
+    
+    return (int(r * 255), int(g * 255), int(b * 255))
 
 if __name__ == "__main__":
     main()

@@ -41,9 +41,10 @@ def build_merged_mask_and_report(
     image: Image.Image,
     detections: List[Dict[str, object]],
     device: str,
-) -> Tuple[np.ndarray, List[Dict[str, object]]]:
+) -> Tuple[np.ndarray, List[Dict[str, object]], List[np.ndarray]]:
     merged_mask = np.zeros((image.height, image.width), dtype=np.uint8)
     report_detections: List[Dict[str, object]] = []
+    individual_masks: List[np.ndarray] = []
 
     for det in detections:
         box = det["box"]
@@ -63,6 +64,7 @@ def build_merged_mask_and_report(
         iou_scores = outputs.iou_scores[0]
         box_mask = pick_best_mask(masks, iou_scores)
         merged_mask = np.maximum(merged_mask, box_mask)
+        individual_masks.append(box_mask)
         report_detections.append(
             {
                 "class": str(det.get("label", "unknown")),
@@ -71,5 +73,5 @@ def build_merged_mask_and_report(
             }
         )
 
-    return merged_mask, report_detections
+    return merged_mask, report_detections, individual_masks
 
