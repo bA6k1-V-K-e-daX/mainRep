@@ -1,27 +1,12 @@
-# =============================================================================
-# AI Pipeline — Windows + CUDA 12.1 (ИСПРАВЛЕННЫЙ)
-# =============================================================================
-
-# ❗ ВАЖНО: --extra-index-url должен идти ПЕРЕД torch/torchvision!
 --extra-index-url https://download.pytorch.org/whl/cu121
 
-# PyTorch с явным CUDA-суффиксом (чтобы pip не брал CPU-версию)
 torch==2.5.0+cu121
 torchvision==0.20.0+cu121
-
-# Остальные зависимости
 grpcio==1.78.0
 grpcio-tools==1.78.0
 protobuf==6.33.5
+numpy==2.2.6
+pillow==12.0.0
 transformers==4.57.1
 safetensors==0.6.2
 sentencepiece==0.2.1
-tokenizers>=0.21.0
-pillow==12.0.0
-opencv-python==4.11.0.86
-numpy==2.2.6
-requests>=2.31.0
-xformers>=0.0.30
-tqdm>=4.66.0
-pyyaml>=6.0
-packaging>=24.0
