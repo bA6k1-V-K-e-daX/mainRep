@@ -3,6 +3,7 @@ import json
 import os
 import re
 import sys
+import requests
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -10,12 +11,8 @@ import numpy as np
 import torch
 from PIL import Image, ImageDraw
 from transformers import (
-    AutoConfig,
-    AutoModelForCausalLM,
     AutoModelForZeroShotObjectDetection,
-    AutoModelForSeq2SeqLM,
     AutoProcessor,
-    AutoTokenizer,
 )
 
 project_root = Path(__file__).resolve().parents[2]
@@ -62,6 +59,8 @@ User: найти объекты на фото -> object
 Request: {user_prompt}
 Answer:
 """
+
+LLM_SERVICE_URL = os.getenv("LLM_SERVICE_URL", "http://127.0.0.1:8080")
 
 def collect_images(image_path: Optional[Path], images_dir: Optional[Path]) -> List[Path]:
     if image_path and images_dir:
@@ -221,60 +220,68 @@ def are_english_labels(labels: List[str]) -> bool:
 
 def parse_query_with_llm(
     query: str,
-    llm_model_id: str,
-    device: str,
-    max_new_tokens: int,
+    llm_model_id: str = None,  # Больше не используется, оставлен для совместимости
+    device: str = None,        # Больше не используется
+    max_new_tokens: int = 96,
 ) -> Dict[str, object]:
+    """
+    Заменяет локальную загрузку LLM на HTTP-запрос к llama.cpp серверу.
+    Экономит ~1.3 ГБ VRAM и ускоряет запуск.
+    """
     prompt = QWEN_LITE_PROMPT.format(user_prompt=query)
-
-    tokenizer = AutoTokenizer.from_pretrained(llm_model_id)
-    config = AutoConfig.from_pretrained(llm_model_id)
-    if getattr(config, "is_encoder_decoder", False):
-        model = AutoModelForSeq2SeqLM.from_pretrained(llm_model_id)
-    else:
-        model = AutoModelForCausalLM.from_pretrained(llm_model_id)
-    model_device = "cuda" if device == "cuda" and torch.cuda.is_available() else "cpu"
-    model = model.to(model_device)
-    model.eval()
-
-    def _generate_text(local_prompt: str) -> str:
-        inputs = tokenizer(local_prompt, return_tensors="pt", truncation=True, max_length=512).to(model_device)
-        with torch.no_grad():
-            output_ids = model.generate(
-                **inputs,
-                max_new_tokens=max_new_tokens,
-                do_sample=False,
-                num_beams=1,
-            )
-        if getattr(config, "is_encoder_decoder", False):
-            decoded = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-        else:
-            prompt_len = inputs["input_ids"].shape[1]
-            decoded = tokenizer.decode(output_ids[0][prompt_len:], skip_special_tokens=True)
-        return decoded.strip()
-
-    raw_text = _generate_text(prompt)
-
+    
+    try:
+        resp = requests.post(
+            f"{LLM_SERVICE_URL}/v1/chat/completions",
+            json={
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": max_new_tokens,
+                "temperature": 0.0,
+            },
+            timeout=30
+        )
+        resp.raise_for_status()
+        raw_text = resp.json()['choices'][0]['message']['content'].strip()
+    except requests.exceptions.ConnectionError:
+        return {
+            "ok": False,
+            "labels": [],
+            "raw_text": "",
+            "status": "connection_error",
+            "error": f"Cannot connect to LLM service at {LLM_SERVICE_URL}"
+        }
+    except Exception as e:
+        return {
+            "ok": False,
+            "labels": [],
+            "raw_text": "",
+            "status": "http_error",
+            "error": str(e)
+        }
+    
     parse_status = "delimiter_parse"
     cleaned_output = raw_text.replace("\n", " ").strip()
+    
     if cleaned_output in {"", "none", "[]"}:
         return {"ok": False, "labels": [], "raw_text": raw_text, "status": "empty_output"}
-
+    
     chunks = [c.strip() for c in re.split(r"\s*\.\s*", cleaned_output) if c.strip()]
     labels = clean_plausible_labels(normalize_labels(chunks))
     labels = [x for x in labels if 1 <= len(x.split()) <= 3]
-
+    
     if not labels:
         return {"ok": False, "labels": [], "raw_text": raw_text, "status": parse_status}
+    
     return {"ok": True, "labels": labels, "raw_text": raw_text, "status": parse_status}
 
 
 def resolve_query_with_llm(
     query: str,
-    llm_model_id: str,
-    device: str,
-    llm_max_new_tokens: int,
+    llm_model_id: str = None,  # Не используется, оставлен для совместимости
+    device: str = None,        # Не используется
+    llm_max_new_tokens: int = 96,
 ) -> Dict[str, object]:
+    """Обёртка для parse_query_with_llm с обработкой ошибок"""
     try:
         parsed = parse_query_with_llm(
             query=query,
@@ -291,7 +298,7 @@ def resolve_query_with_llm(
             "status": "exception",
             "error": str(exc),
         }
-
+    
     labels: List[str] = [str(x) for x in parsed.get("labels", [])]
     if not parsed.get("ok") or not labels or not are_english_labels(labels):
         return {
@@ -302,6 +309,7 @@ def resolve_query_with_llm(
             "status": str(parsed.get("status", "invalid")),
             "error": "",
         }
+    
     prompt = ". ".join(labels) + "."
     return {
         "ok": True,
@@ -1036,10 +1044,10 @@ def main() -> None:
         elif args.query_parser == "llm":
             llm_result = resolve_query_with_llm(
                 query=user_query,
-                llm_model_id=args.llm_model_id,
-                device=args.device,
+                llm_model_id=args.llm_model_id,  # Игнорируется в новой версии
+                device=args.device,               # Игнорируется
                 llm_max_new_tokens=max(16, args.llm_max_new_tokens),
-            )
+    )
             llm_trace.update(
                 {
                     "status": llm_result.get("status", "unknown"),
