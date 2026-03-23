@@ -1,25 +1,21 @@
-# ML/Dockerfile
-# Используем devel образ для компиляции llama.cpp с CUDA
-FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
+# =============================================================================
+# ЭТАП 1: BUILDER — компиляция llama.cpp с CUDA
+# =============================================================================
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS builder
 
-# === Системные зависимости ===
+# Минимальные зависимости только для сборки
 RUN apt-get update && apt-get install -y \
-    python3.10 \
-    python3-pip \
-    wget \
-    curl \
-    unzip \
     git \
     cmake \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+WORKDIR /build
 
-# === СБОРКА llama.cpp С CUDA (через CMake) ===
-ENV LLAMA_BIN=/app/llama-bin
+ENV LLAMA_BIN=/build/llama-bin
 ENV CUDA_HOME=/usr/local/cuda
 
+# === СБОРКА llama.cpp С CUDA ===
 RUN mkdir -p ${LLAMA_BIN} && \
     git clone --depth 1 --branch b5400 https://github.com/ggerganov/llama.cpp /tmp/llama.cpp && \
     cd /tmp/llama.cpp && \
@@ -29,20 +25,34 @@ RUN mkdir -p ${LLAMA_BIN} && \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_CUDA_ARCHITECTURES="86" \
         -DCMAKE_EXE_LINKER_FLAGS="-Wl,--allow-shlib-undefined" && \
-    cmake --build build --config Release --target llama-server -j2 && \
-    # === КОПИРУЕМ бинарник + ВСЕ .so библиотеки ===
-    cp build/bin/llama-server ${LLAMA_BIN}/llama-server && \
+    cmake --build build --config Release --target llama-server -j$(nproc) && \
+    cp build/bin/llama-server ${LLAMA_BIN}/ && \
     cp build/bin/lib*.so ${LLAMA_BIN}/ 2>/dev/null || true && \
     chmod +x ${LLAMA_BIN}/llama-server && \
-    # === Настраиваем поиск библиотек ===
-    echo "export LD_LIBRARY_PATH=${LLAMA_BIN}:\$LD_LIBRARY_PATH" >> /etc/profile && \
-    rm -rf /tmp/llama.cpp && \
-    echo "✅ llama-server + libs copied to ${LLAMA_BIN}"
+    rm -rf /tmp/llama.cpp /build/build
 
-# === Скачивание модели Qwen2.5 1.5B 4-bit ===
+# =============================================================================
+# ЭТАП 2: RUNTIME — минимальный образ для запуска
+# =============================================================================
+FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+
+WORKDIR /app
+
+# === Минимальные системные зависимости ===
+RUN apt-get update && apt-get install -y \
+    python3.10 \
+    python3-pip \
+    wget \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.10 /usr/bin/python3
+
+# === Копируем скомпилированный llama-server из builder ===
+COPY --from=builder /build/llama-bin /app/llama-bin
+
+# === Скачивание модели (опционально: можно монтировать volume) ===
 ENV MODEL_DIR=/app/models
 RUN mkdir -p ${MODEL_DIR} && \
-    wget -q --timeout=300 --show-progress \
+    wget -q --timeout=300 \
     https://huggingface.co/bartowski/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf \
     -O ${MODEL_DIR}/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf
 
@@ -50,7 +60,7 @@ RUN mkdir -p ${MODEL_DIR} && \
 COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
-# === Код ===
+# === Код приложения ===
 COPY app/ ./app/
 COPY main.py .
 COPY config/ ./config/
@@ -58,13 +68,12 @@ COPY services/ ./services/
 COPY scripts/ ./scripts/
 
 # === Переменные окружения ===
-ENV PYTHONUNBUFFERED=1
-ENV RUNNING_IN_DOCKER=true
-ENV LLAMA_SERVER_PATH=/app/llama-bin/llama-server
-ENV LLAMA_MODEL_PATH=/app/models/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf
-ENV LLM_SERVICE_URL=http://127.0.0.1:8081
-# === ВАЖНО: путь к .so библиотекам для llama-server ===
-ENV LD_LIBRARY_PATH=/app/llama-bin:${LD_LIBRARY_PATH}
+ENV PYTHONUNBUFFERED=1 \
+    RUNNING_IN_DOCKER=true \
+    LLAMA_SERVER_PATH=/app/llama-bin/llama-server \
+    LLAMA_MODEL_PATH=/app/models/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf \
+    LLM_SERVICE_URL=http://127.0.0.1:8081 \
+    LD_LIBRARY_PATH=/app/llama-bin:${LD_LIBRARY_PATH}
 
 # === Порты ===
 EXPOSE 8081 50051
