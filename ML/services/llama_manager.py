@@ -32,22 +32,26 @@ class LlamaServer:
         cmd = [
             LLMConfig.get_server_path(),
             "-m", LLMConfig.get_model_path(),
-            "-ngl", LLMConfig.NGL,
+            "-ngl", str(LLMConfig.NGL),              # ← str() для чисел!
             "-c", str(LLMConfig.CONTEXT),
             "--host", LLMConfig.HOST,
             "--port", str(LLMConfig.PORT),
-            "-t", LLMConfig.THREADS,
+            "-t", str(LLMConfig.THREADS),            # ← str() для чисел!
         ]
         
-        # Добавляем оптимизации
+                # === СТАЛО (правильно) ===
+        # Булевы флаги: добавляем ТОЛЬКО имя флага, без значения
         if LLMConfig.FLASH_ATTN:
-            cmd.extend(["--flash-attn", LLMConfig.FLASH_ATTN])
-        if LLMConfig.CACHE_REUSE:
-            cmd.extend(["--cache-reuse", LLMConfig.CACHE_REUSE])
+            cmd.append("--flash-attn")  # ← просто флаг!
+
         if LLMConfig.NO_MMAP:
-            cmd.append("--no-mmap")
+            cmd.append("--no-mmap")     # ← просто флаг!
         else:
-            cmd.append("--mmap")
+            cmd.append("--mmap")        # ← просто флаг!
+
+        # Числовые параметры: два аргумента, ОБА строки
+        if LLMConfig.CACHE_REUSE:
+            cmd.extend(["--cache-reuse", str(LLMConfig.CACHE_REUSE)])
         
         return cmd
     

@@ -26,38 +26,48 @@ def torch_available() -> bool:
 
 
 # === LLM Сервер (llama.cpp) ===
+# === LLM Сервер (llama.cpp) ===
 class LLMConfig:
-    """Настройки llama-server"""
+    """Настройки llama-server — работают в Docker и на хосте"""
     
+    # Пути для Windows (хост)
     _DEFAULT_SERVER_WIN = r"C:\llama.cpp\llama-server.exe"
-    _DEFAULT_SERVER_DOCKER = "/host-llama/llama-server"
-    _DEFAULT_SERVER_LINUX = "/opt/llama.cpp/llama-server"
-    
     _DEFAULT_MODEL_WIN = r"C:\llama.cpp\models\Qwen2.5-1.5B-Instruct-Q4_K_M.gguf"
-    _DEFAULT_MODEL_DOCKER = "/host-llama/models/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf"
+    
+    # Пути для Docker (контейнер) — ✅ ИСПРАВЛЕНО!
+    _DEFAULT_SERVER_DOCKER = "/app/llama-bin/llama-server"
+    _DEFAULT_MODEL_DOCKER = "/app/models/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf"
+    
+    # Пути для Linux (хост)
+    _DEFAULT_SERVER_LINUX = "/opt/llama.cpp/llama-server"
     _DEFAULT_MODEL_LINUX = "/opt/llama.cpp/models/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf"
     
     @classmethod
     def get_server_path(cls) -> str:
+        """Возвращает путь к llama-server с приоритетом env-переменной"""
         if IS_DOCKER:
             default = cls._DEFAULT_SERVER_DOCKER
         elif IS_WINDOWS:
             default = cls._DEFAULT_SERVER_WIN
         else:
             default = cls._DEFAULT_SERVER_LINUX
+        # Env-переменная всегда имеет приоритет
         return os.getenv("LLAMA_SERVER_PATH", default)
     
     @classmethod
     def get_model_path(cls) -> str:
+        """Возвращает путь к модели с приоритетом env-переменной"""
         if IS_DOCKER:
             default = cls._DEFAULT_MODEL_DOCKER
         elif IS_WINDOWS:
             default = cls._DEFAULT_MODEL_WIN
         else:
             default = cls._DEFAULT_MODEL_LINUX
+        # Env-переменная всегда имеет приоритет
         return os.getenv("LLAMA_MODEL_PATH", default)
     
-    PORT = int(os.getenv("LLAMA_PORT", "8080"))
+    # === Остальные настройки (без изменений) ===
+    PORT = int(os.getenv("LLAMA_PORT", "8081"))  # ← 8081, а не 8080!
     HOST = os.getenv("LLAMA_HOST", "127.0.0.1")
     NGL = os.getenv("LLAMA_NGL", "99")
     CONTEXT = int(os.getenv("LLAMA_CONTEXT", "2048"))
@@ -78,7 +88,6 @@ class LLMConfig:
     @classmethod
     def get_chat_url(cls) -> str:
         return f"{cls.get_base_url()}/v1/chat/completions"
-
 
 # === Vision модели (DINO, SAM) ===
 class VisionConfig:
@@ -121,9 +130,46 @@ def setup_pytorch_env():
 
 # === Утилиты ===
 def validate_paths() -> dict[str, bool]:
-    """Проверяет существование критических файлов"""
-    return {
-        "llama_server": Path(LLMConfig.get_server_path()).exists(),
-        "llama_model": Path(LLMConfig.get_model_path()).exists(),
-        "grpc_module": Path(*GRPCConfig.MODULE.split('.')).with_suffix('.py').exists(),
+    """Проверяет существование критических файлов с логированием"""
+    import sys
+    
+    server_path = LLMConfig.get_server_path()
+    model_path = LLMConfig.get_model_path()
+    
+    # Отладочный вывод (попадает в docker logs)
+    print(f"[DEBUG] validate_paths: server={server_path}", file=sys.stderr)
+    print(f"[DEBUG] validate_paths: model={model_path}", file=sys.stderr)
+    
+    checks = {
+        "llama_server": Path(server_path).exists() and os.access(server_path, os.X_OK),
+        "llama_model": Path(model_path).exists() and Path(model_path).stat().st_size > 100_000_000,  # >100MB
+        "grpc_module": _check_grpc_module(),  # вынесли в отдельную функцию
     }
+    
+    # Лог результатов
+    for name, ok in checks.items():
+        status = "✅" if ok else "❌"
+        print(f"[DEBUG] {status} {name}", file=sys.stderr)
+    
+    return checks
+
+
+def _check_grpc_module() -> bool:
+    """Проверяет доступность gRPC модуля"""
+    try:
+        # Пробуем найти файл относительно /app (Docker) или cwd (хост)
+        module_path = Path(*GRPCConfig.MODULE.split('.')).with_suffix('.py')
+        
+        # Проверяем несколько возможных путей
+        if module_path.exists():
+            return True
+        if (Path("app") / module_path).exists():  # ← Исправлено: скобки!
+            return True
+        if (Path("/app") / module_path).exists():  # Для Docker
+            return True
+            
+        # Если файл не нашли — пробуем импортировать
+        __import__(GRPCConfig.MODULE)
+        return True
+    except Exception:
+        return False

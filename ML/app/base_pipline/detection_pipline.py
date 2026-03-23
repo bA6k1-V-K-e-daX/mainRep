@@ -60,7 +60,7 @@ Request: {user_prompt}
 Answer:
 """
 
-LLM_SERVICE_URL = os.getenv("LLM_SERVICE_URL", "http://127.0.0.1:8080")
+LLM_SERVICE_URL = os.getenv("LLM_SERVICE_URL", "http://127.0.0.1:8081")
 
 def collect_images(image_path: Optional[Path], images_dir: Optional[Path]) -> List[Path]:
     if image_path and images_dir:
