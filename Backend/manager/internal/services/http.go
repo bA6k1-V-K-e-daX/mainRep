@@ -156,7 +156,7 @@ func (s *HTTPService) Detect(c *gin.Context) {
 		}
 	}
 
-	resp, err := s.mlClient.Detect(c.Request.Context(), queryID, s.volumePath, payload.Targets)
+	resp, err := s.mlClient.Detect(c.Request.Context(), queryID, s.volumePath, payload.Prompt)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "ML Service failure", "details": err.Error()})
 		return

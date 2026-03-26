@@ -16,7 +16,7 @@ type AuthResponse struct {
 }
 
 type DetectPayload struct {
-	Targets []string `json:"targets"`
+	Prompt string `json:"prompt"`
 }
 
 type HistoryAnswer struct {
