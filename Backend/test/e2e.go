@@ -141,7 +141,7 @@ func detect(token string) {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
-	jsonPayload := `{"targets":["person","car","apple"]}`
+	jsonPayload := `{"prompt":"Найди помидор, ванную, машину, человека, кошку и т.п. В общем, всё, что найдешь. Но конкреиные объекты, а не просто all и object!"}`
 	if err := writer.WriteField("payload", jsonPayload); err != nil {
 		fmt.Printf("    [X] Failed to write payload field: %v\n", err)
 		return

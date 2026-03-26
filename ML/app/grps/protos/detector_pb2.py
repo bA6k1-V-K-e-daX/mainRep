@@ -14,7 +14,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0e\x64\x65tector.proto\x12\x04grps\"G\n\x10\x44\x65tectionRequest\x12\x10\n\x08query_id\x18\x01 \x01(\x03\x12\x10\n\x08\x64ir_path\x18\x02 \x01(\t\x12\x0f\n\x07targets\x18\x03 \x03(\t\"\xa4\x01\n\x11\x44\x65tectionResponse\x12\x10\n\x08query_id\x18\x01 \x01(\x03\x12\x13\n\x0bresult_path\x18\x02 \x01(\t\x12\x0f\n\x07success\x18\x03 \x01(\x08\x12)\n\rinstance_info\x18\x04 \x03(\x0b\x32\x12.grps.InstanceInfo\x12\x15\n\rerror_message\x18\x05 \x01(\t\x12\x15\n\rtotal_objects\x18\x06 \x01(\x05\"E\n\x0cInstanceInfo\x12\x12\n\nclass_name\x18\x01 \x01(\t\x12\x13\n\x0b\x63onfidience\x18\x02 \x01(\x02\x12\x0c\n\x04\x62\x62ox\x18\x03 \x03(\x02\x32M\n\x08\x44\x65tector\x12\x41\n\x0eImageDetection\x12\x16.grps.DetectionRequest\x1a\x17.grps.DetectionResponseB\x12Z\x10sirius.ml.v1;ml1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0e\x64\x65tector.proto\x12\x04grps\"F\n\x10\x44\x65tectionRequest\x12\x10\n\x08query_id\x18\x01 \x01(\x03\x12\x10\n\x08\x64ir_path\x18\x02 \x01(\t\x12\x0e\n\x06prompt\x18\x03 \x01(\t\"\xa4\x01\n\x11\x44\x65tectionResponse\x12\x10\n\x08query_id\x18\x01 \x01(\x03\x12\x13\n\x0bresult_path\x18\x02 \x01(\t\x12\x0f\n\x07success\x18\x03 \x01(\x08\x12)\n\rinstance_info\x18\x04 \x03(\x0b\x32\x12.grps.InstanceInfo\x12\x15\n\rerror_message\x18\x05 \x01(\t\x12\x15\n\rtotal_objects\x18\x06 \x01(\x05\"E\n\x0cInstanceInfo\x12\x12\n\nclass_name\x18\x01 \x01(\t\x12\x13\n\x0b\x63onfidience\x18\x02 \x01(\x02\x12\x0c\n\x04\x62\x62ox\x18\x03 \x03(\x02\x32M\n\x08\x44\x65tector\x12\x41\n\x0eImageDetection\x12\x16.grps.DetectionRequest\x1a\x17.grps.DetectionResponseB\x12Z\x10sirius.ml.v1;ml1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -23,11 +23,11 @@ if _descriptor._USE_C_DESCRIPTORS == False:
   _globals['DESCRIPTOR']._options = None
   _globals['DESCRIPTOR']._serialized_options = b'Z\020sirius.ml.v1;ml1'
   _globals['_DETECTIONREQUEST']._serialized_start=24
-  _globals['_DETECTIONREQUEST']._serialized_end=95
-  _globals['_DETECTIONRESPONSE']._serialized_start=98
-  _globals['_DETECTIONRESPONSE']._serialized_end=262
-  _globals['_INSTANCEINFO']._serialized_start=264
-  _globals['_INSTANCEINFO']._serialized_end=333
-  _globals['_DETECTOR']._serialized_start=335
-  _globals['_DETECTOR']._serialized_end=412
+  _globals['_DETECTIONREQUEST']._serialized_end=94
+  _globals['_DETECTIONRESPONSE']._serialized_start=97
+  _globals['_DETECTIONRESPONSE']._serialized_end=261
+  _globals['_INSTANCEINFO']._serialized_start=263
+  _globals['_INSTANCEINFO']._serialized_end=332
+  _globals['_DETECTOR']._serialized_start=334
+  _globals['_DETECTOR']._serialized_end=411
 # @@protoc_insertion_point(module_scope)

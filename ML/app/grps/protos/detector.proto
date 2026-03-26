@@ -9,7 +9,7 @@ service Detector {
 message DetectionRequest {
   int64 query_id = 1;
   string dir_path = 2;
-  repeated string targets = 3;
+  string prompt = 3;
 }
 
 message DetectionResponse {

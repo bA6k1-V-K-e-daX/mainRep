@@ -1,6 +1,5 @@
 # app/grps/test_client.py
 import grpc
-from collections import defaultdict
 from app.grps.protos import detector_pb2, detector_pb2_grpc
 
 
@@ -48,20 +47,20 @@ def main():
 
     # Параметры запроса
     query_id = 3
-    dir_path = "volume"  # ← замените на реальный путь к папке или файлу!
-    targets = []       # ← классы, которые нужно искать (оставьте [] для всех)
+    dir_path = "/app/volume" # ← замените на реальный путь к папке или файлу!
+    prompt = "Ладно найди мне котов, собак, коней, людей, хз чё ещё, бля чё хочешь найди вообще"
 
     # Формируем запрос
     request = detector_pb2.DetectionRequest(
         query_id=query_id,
         dir_path=dir_path,
-        targets=targets
+        prompt=prompt,
     )
 
     print(f"📤 Отправляю запрос:")
     print(f"   query_id: {request.query_id}")
     print(f"   dir_path: {request.dir_path}")
-    print(f"   targets:  {list(request.targets)}")
+    print(f"   prompt:   {request.prompt}")
 
     try:
         response = stub.ImageDetection(request)
