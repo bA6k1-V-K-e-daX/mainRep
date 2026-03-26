@@ -4,7 +4,7 @@ import Button from "../Components/Button";
 export default function Registration() {
   return (
     <>
-      <div>
+      <div className=' h-full flex items-center justify-between'>
         <div>
           <h1>Текст - текст</h1>
           <img src='Rectangle_11.png' alt='' />

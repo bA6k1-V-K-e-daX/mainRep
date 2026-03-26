@@ -6,7 +6,7 @@ const glowSpots = [
     top: "5%", // Позиция сверху (в % от всей высоты страницы)
     left: "-10%", // Позиция слева (отрицательная, чтобы часть уходила за край)
     color: "bg-[#4500F9]", // Цвет Tailwind
-    opacity: "opacity-40", // Прозрачность
+    opacity: "opacity-10", // Прозрачность
     minSize: "250px", // Минимальный размер (на мобилках)
     maxSize: "700px", // Максимальный размер (на больших экранах)
   },
@@ -15,7 +15,7 @@ const glowSpots = [
     top: "40%",
     right: "-5%",
     color: "bg-[#4500F9]",
-    opacity: "opacity-30",
+    opacity: "opacity-10",
     minSize: "200px",
     maxSize: "600px",
   },
@@ -24,7 +24,7 @@ const glowSpots = [
     bottom: "10%",
     left: "10%",
     color: "bg-[#4500F9]",
-    opacity: "opacity-20",
+    opacity: "opacity-10",
     minSize: "300px",
     maxSize: "800px",
   },
