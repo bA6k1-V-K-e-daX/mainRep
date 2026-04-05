@@ -50,8 +50,8 @@ export default function About() {
           />
         </div>
       </div>
-      <div className='w-134.75'>
-        <h1>Один сервис — множество сценариев</h1>
+      <div className='w-134.75 '>
+        <h1 className='font-semibold'>Один сервис — множество сценариев</h1>
 
         <ul
           className='mt-4.5 list-disc list-inside'
