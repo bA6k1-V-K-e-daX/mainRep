@@ -1,35 +1,88 @@
 # main.py
-import subprocess
 import sys
-import os
+import signal
+import logging
 from pathlib import Path
+import subprocess
+# Импортируем наши модули
+from config import validate_paths, GRPCConfig
+from services import LlamaServer
+
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+logger = logging.getLogger("orchestrator")
+
+
+def cleanup(signum, frame):
+    """Обработчик сигналов остановки"""
+    logger.info("\n🛑 Получен сигнал остановки, завершаем работу...")
+    if 'llama_server' in globals():
+        llama_server.stop()
+    sys.exit(0)
 
 
 def main():
-    print("🚀 Запускаю gRPC сервер...🚀🚀🚀🚀")
+    """Точка входа в приложение"""
     
-    if not os.path.exists("app/grps/server.py"):
-        print("❌ Файл server.py не найден")
-        return
-
+    # Заголовок
+    print("=" * 60)
+    print("🤖 AI PIPELINE ORCHESTRATOR")
+    print("=" * 60)
+    
+    # 1. Валидация путей
+    paths_ok = validate_paths()
+    if not all(paths_ok.values()):
+        logger.error("❌ Проверка путей не пройдена:")
+        for name, ok in paths_ok.items():
+            status = "✅" if ok else "❌"
+            logger.error(f"   {status} {name}")
+        return 1
+    
+    # 2. Запуск LLM сервера
+    global llama_server
+    llama_server = LlamaServer()
+    
+    if not llama_server.start(timeout=120):
+        logger.error("❌ Не удалось запустить LLM сервер")
+        return 1
+    
+    # 3. Запуск gRPC сервера (блокирующий)
+    grpc_module = GRPCConfig.MODULE
+    logger.info(f"📡 Запуск gRPC сервера: {grpc_module}")
+    
     try:
-        # Запускаем как модуль И захватываем вывод
-        result = subprocess.run(
-            [sys.executable, "-m", "app.grps.server"],
-            capture_output=False,  # Выводим всё в консоль напрямую
+        result = subprocess.run(  # noqa: F821 (subprocess импортируется в llama_manager)
+            [sys.executable, "-m", grpc_module],
+            capture_output=False,
             text=True,
-            check=False  # Не выбрасываем исключение автоматически
+            check=False
         )
-        
         if result.returncode != 0:
-            print(f"\n⚠️ Сервер завершился с кодом: {result.returncode}")
-        else:
-            print("\n✅ Сервер остановлен штатно")
+            logger.warning(f"⚠️ gRPC сервер завершился с кодом: {result.returncode}")
+            return result.returncode
             
     except KeyboardInterrupt:
-        print("\n🛑 Принудительная остановка")
+        logger.info("\n🛑 Принудительная остановка пользователем")
+        return 130
     except Exception as e:
-        print(f"💥 Аварийная ошибка: {e}")
+        logger.error(f"💥 Ошибка gRPC сервера: {e}")
+        return 1
+    finally:
+        # Гарантированная остановка LLM
+        llama_server.stop()
+    
+    logger.info("✅ Приложение завершено штатно")
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    # Регистрация обработчиков сигналов
+    signal.signal(signal.SIGINT, cleanup)
+    signal.signal(signal.SIGTERM, cleanup)
+    
+    # Запуск
+    sys.exit(main())

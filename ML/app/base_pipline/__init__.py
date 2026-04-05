@@ -1,0 +1,2 @@
+"""Base detection pipeline package."""
+

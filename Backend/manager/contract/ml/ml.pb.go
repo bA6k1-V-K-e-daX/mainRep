@@ -7,12 +7,11 @@
 package ml1
 
 import (
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
-
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -26,7 +25,7 @@ type DetectionRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	QueryId       int64                  `protobuf:"varint,1,opt,name=query_id,json=queryId,proto3" json:"query_id,omitempty"`
 	DirPath       string                 `protobuf:"bytes,2,opt,name=dir_path,json=dirPath,proto3" json:"dir_path,omitempty"`
-	Targets       []string               `protobuf:"bytes,3,rep,name=targets,proto3" json:"targets,omitempty"`
+	Prompt        string                 `protobuf:"bytes,3,opt,name=prompt,proto3" json:"prompt,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -75,11 +74,11 @@ func (x *DetectionRequest) GetDirPath() string {
 	return ""
 }
 
-func (x *DetectionRequest) GetTargets() []string {
+func (x *DetectionRequest) GetPrompt() string {
 	if x != nil {
-		return x.Targets
+		return x.Prompt
 	}
-	return nil
+	return ""
 }
 
 type DetectionResponse struct {
@@ -230,11 +229,11 @@ var File_newp_ml_ml_proto protoreflect.FileDescriptor
 
 const file_newp_ml_ml_proto_rawDesc = "" +
 	"\n" +
-	"\x10newp/ml/ml.proto\x12\x04grps\"b\n" +
+	"\x10newp/ml/ml.proto\x12\x04grps\"`\n" +
 	"\x10DetectionRequest\x12\x19\n" +
 	"\bquery_id\x18\x01 \x01(\x03R\aqueryId\x12\x19\n" +
-	"\bdir_path\x18\x02 \x01(\tR\adirPath\x12\x18\n" +
-	"\atargets\x18\x03 \x03(\tR\atargets\"\xec\x01\n" +
+	"\bdir_path\x18\x02 \x01(\tR\adirPath\x12\x16\n" +
+	"\x06prompt\x18\x03 \x01(\tR\x06prompt\"\xec\x01\n" +
 	"\x11DetectionResponse\x12\x19\n" +
 	"\bquery_id\x18\x01 \x01(\x03R\aqueryId\x12\x1f\n" +
 	"\vresult_path\x18\x02 \x01(\tR\n" +
