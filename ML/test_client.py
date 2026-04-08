@@ -40,6 +40,7 @@ def print_detection_response(response: "detector_pb2.DetectionResponse") -> None
         print("  (no instance_info entries)")
 
     print("=" * 50)
+
 def main():
     # Подключаемся к серверу
     channel = grpc.insecure_channel('localhost:50051')
@@ -64,12 +65,12 @@ def main():
 
     try:
         response = stub.ImageDetection(request)
-        
+
         if response.success:
             print_detection_response(response)
         else:
             print(f"\n❌ Ошибка: {response.error_message}")
-            
+
     except grpc.RpcError as e:
         print(f"\n❌ gRPC ошибка: {e.code().name} — {e.details()}")
     finally:

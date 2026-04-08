@@ -131,6 +131,7 @@ class ImageDetectionUseCase:
                 source_path=source_path,
                 save_path=save_path,
                 text=parsed_text or "object",
+                original_query=effective_prompt,
             )
         finally:
             # 4. Перезапускаем llama-server для следующего запроса
@@ -139,7 +140,7 @@ class ImageDetectionUseCase:
         counts, instance_infos = self._read_report(save_path / "report.txt")
         return str(save_path), counts, instance_infos
 
-    def _run_sam_pipeline(self, source_path: Path, save_path: Path, text: str) -> None:
+    def _run_sam_pipeline(self, source_path: Path, save_path: Path, text: str, original_query: str = "") -> None:
         script_path = Path(__file__).resolve().parents[1] / "base_pipline" / "detection_pipline.py"
         cmd = [
             sys.executable,
@@ -149,6 +150,8 @@ class ImageDetectionUseCase:
             "--query-parser", "rule",
             "--output-dir", str(save_path),
         ]
+        if original_query:
+            cmd += ["--original-query", original_query]
         completed = subprocess.run(cmd, capture_output=True, text=True)
         if completed.returncode != 0:
             raise RuntimeError(

@@ -32,7 +32,7 @@ class LLMConfig:
     
     # Пути для Windows (хост)
     _DEFAULT_SERVER_WIN = r"C:\llama.cpp\llama-server.exe"
-    _DEFAULT_MODEL_WIN = r"C:\llama.cpp\models\Qwen2.5-3B-Instruct-Q8_0.gguf"
+    _DEFAULT_MODEL_WIN = r"C:\llama.cpp\models\Qwen2.5-3B-Instruct-Q6_K.gguf"
     
     # Пути для Docker (контейнер) — ✅ ИСПРАВЛЕНО!
     _DEFAULT_SERVER_DOCKER = "/app/llama-bin/llama-server"

@@ -1005,6 +1005,11 @@ def main() -> None:
         help="Deprecated and ignored.",
     )
     parser.add_argument(
+        "--original-query",
+        default=None,
+        help="Original user prompt (before LLM parsing). Stored in llm_parse.json for traceability.",
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=Path("sam3_outputs"),
@@ -1153,10 +1158,10 @@ def main() -> None:
     user_query = args.query if args.query is not None else args.text
     llm_trace: Dict[str, object] = {
         "query_parser": args.query_parser,
+        "original_query": args.original_query or "",
         "user_query": user_query,
         "llm_model_id": args.llm_model_id,
         "status": "not_used",
-        "raw_text": "",
         "labels": [],
         "error": "",
     }

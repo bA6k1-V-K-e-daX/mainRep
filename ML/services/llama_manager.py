@@ -1,4 +1,6 @@
 # services/llama_manager.py
+import ctypes
+import ctypes.wintypes
 import subprocess
 import sys
 import time
@@ -8,6 +10,28 @@ from typing import Optional
 from pathlib import Path
 
 from config import LLMConfig, IS_WINDOWS, IS_DOCKER
+
+# Windows Job Object: автоматически убивает дочерние процессы при завершении родителя
+_job_handle = None
+
+def _assign_to_job(pid: int) -> None:
+    """Привязывает процесс к Job Object с флагом KILL_ON_JOB_CLOSE."""
+    global _job_handle
+    if not IS_WINDOWS:
+        return
+    try:
+        kernel32 = ctypes.windll.kernel32
+        if _job_handle is None:
+            _job_handle = kernel32.CreateJobObjectW(None, None)
+            info = (ctypes.c_uint32 * 8)()
+            info[1] = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            kernel32.SetInformationJobObject(_job_handle, 9, ctypes.byref(info), ctypes.sizeof(info))
+        proc_handle = kernel32.OpenProcess(0x1F0FFF, False, pid)
+        if proc_handle:
+            kernel32.AssignProcessToJobObject(_job_handle, proc_handle)
+            kernel32.CloseHandle(proc_handle)
+    except Exception as e:
+        logger.debug(f"Job Object assign failed: {e}")
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +131,9 @@ class LlamaServer:
                     encoding='utf-8',
                     errors='replace'
                 )
+            # Привязываем к Job Object — умрёт вместе с main.py
+            _assign_to_job(self.process.pid)
+
             # После subprocess.Popen(...)
             time.sleep(2)  # Даём процессу 2 секунды на старт/краш
 
@@ -155,26 +182,32 @@ class LlamaServer:
     
     def stop(self, timeout: int = 5) -> bool:
         """Корректно останавливает сервер"""
-        if not self.process or not self._started:
-            return True
-        
         logger.info("🔄 Остановка LLM сервера...")
-        
+
+        # Всегда убиваем все процессы llama-server на Windows —
+        # detect_image.py может перезапустить его в новом процессе,
+        # который уже не отслеживается через self.process
+        if IS_WINDOWS:
+            subprocess.run(
+                ["taskkill", "/F", "/IM", "llama-server.exe"],
+                capture_output=True,
+            )
+
+        if not self.process or not self._started:
+            self._started = False
+            return True
+
         try:
-            self.process.terminate()
-            
-            # Для Windows иногда нужен kill
-            if IS_WINDOWS:
+            if self.process.poll() is None:
+                self.process.terminate()
                 time.sleep(0.5)
                 if self.process.poll() is None:
                     self.process.kill()
-            
-            # Ждём завершения
-            exit_code = self.process.wait(timeout=timeout)
-            logger.info(f"✅ LLM сервер остановлен (код: {exit_code})")
+            self.process.wait(timeout=timeout)
+            logger.info("✅ LLM сервер остановлен")
             self._started = False
             return True
-            
+
         except subprocess.TimeoutExpired:
             logger.warning("⚠️ Таймаут остановки, принудительное завершение")
             self.process.kill()
@@ -182,6 +215,7 @@ class LlamaServer:
             return False
         except Exception as e:
             logger.error(f"❌ Ошибка при остановке LLM: {e}")
+            self._started = False
             return False
     
     def is_running(self) -> bool:
