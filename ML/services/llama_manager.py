@@ -28,30 +28,30 @@ class LlamaServer:
         self._started = False
     
     def build_command(self) -> list[str]:
-        """Собирает команду запуска llama-server с текущими настройками"""
         cmd = [
-            LLMConfig.get_server_path(),
-            "-m", LLMConfig.get_model_path(),
-            "-ngl", str(LLMConfig.NGL),              # ← str() для чисел!
+            str(Path(LLMConfig.get_server_path())),
+            "-m", str(Path(LLMConfig.get_model_path())),
+            "-ngl", str(LLMConfig.NGL),
             "-c", str(LLMConfig.CONTEXT),
             "--host", LLMConfig.HOST,
             "--port", str(LLMConfig.PORT),
-            "-t", str(LLMConfig.THREADS),            # ← str() для чисел!
+            "-t", str(LLMConfig.THREADS),
         ]
         
-                # === СТАЛО (правильно) ===
-        # Булевы флаги: добавляем ТОЛЬКО имя флага, без значения
+        # === Flash Attention: проверяем поддержку синтаксиса ===
         if LLMConfig.FLASH_ATTN:
-            cmd.append("--flash-attn")  # ← просто флаг!
-
-        if LLMConfig.NO_MMAP:
-            cmd.append("--no-mmap")     # ← просто флаг!
+            # Новый синтаксис (llama.cpp после 2024-09)
+            cmd.extend(["--flash-attn", "on"])
         else:
-            cmd.append("--mmap")        # ← просто флаг!
-
-        # Числовые параметры: два аргумента, ОБА строки
-        if LLMConfig.CACHE_REUSE:
-            cmd.extend(["--cache-reuse", str(LLMConfig.CACHE_REUSE)])
+            cmd.extend(["--flash-attn", "off"])
+        
+        # === MMAP ===
+        cmd.append("--no-mmap" if LLMConfig.NO_MMAP else "--mmap")
+        
+        # === Cache reuse ===
+        cache_val = str(LLMConfig.CACHE_REUSE).strip()
+        if cache_val and cache_val not in ("0", "false", "off"):
+            cmd.extend(["--cache-reuse", cache_val])
         
         return cmd
     
@@ -107,7 +107,15 @@ class LlamaServer:
                     encoding='utf-8',
                     errors='replace'
                 )
-            
+            # После subprocess.Popen(...)
+            time.sleep(2)  # Даём процессу 2 секунды на старт/краш
+
+            if self.process.poll() is not None:
+                # Процесс уже умер! Читаем вывод
+                stdout, _ = self.process.communicate(timeout=5)
+                logger.error(f"❌ llama-server упал сразу! Код: {self.process.returncode}")
+                logger.error(f"📋 Вывод:\n{stdout}")
+                return False
             # Ждём готовности
             if self.wait_for_health(timeout):
                 self._started = True

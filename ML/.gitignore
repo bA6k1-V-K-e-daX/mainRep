@@ -105,6 +105,7 @@ results_container/
 output/
 predictions/
 exports/
+volume/
 
 # ==================== LOGS ====================
 # Logs

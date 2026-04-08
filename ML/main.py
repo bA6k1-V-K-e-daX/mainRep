@@ -19,7 +19,7 @@ logger = logging.getLogger("orchestrator")
 
 def cleanup(signum, frame):
     """Обработчик сигналов остановки"""
-    logger.info("\n🛑 Получен сигнал остановки, завершаем работу...")
+    logger.info("\nПолучен сигнал остановки, завершаем работу...")
     if 'llama_server' in globals():
         llama_server.stop()
     sys.exit(0)
@@ -30,15 +30,15 @@ def main():
     
     # Заголовок
     print("=" * 60)
-    print("🤖 AI PIPELINE ORCHESTRATOR")
+    print("AI PIPELINE ORCHESTRATOR")
     print("=" * 60)
     
     # 1. Валидация путей
     paths_ok = validate_paths()
     if not all(paths_ok.values()):
-        logger.error("❌ Проверка путей не пройдена:")
+        logger.error("Проверка путей не пройдена:")
         for name, ok in paths_ok.items():
-            status = "✅" if ok else "❌"
+            status = "v" if ok else "x"
             logger.error(f"   {status} {name}")
         return 1
     
@@ -47,12 +47,12 @@ def main():
     llama_server = LlamaServer()
     
     if not llama_server.start(timeout=120):
-        logger.error("❌ Не удалось запустить LLM сервер")
+        logger.error("Не удалось запустить LLM сервер")
         return 1
     
     # 3. Запуск gRPC сервера (блокирующий)
     grpc_module = GRPCConfig.MODULE
-    logger.info(f"📡 Запуск gRPC сервера: {grpc_module}")
+    logger.info(f"Запуск gRPC сервера: {grpc_module}")
     
     try:
         result = subprocess.run(  # noqa: F821 (subprocess импортируется в llama_manager)
@@ -62,20 +62,20 @@ def main():
             check=False
         )
         if result.returncode != 0:
-            logger.warning(f"⚠️ gRPC сервер завершился с кодом: {result.returncode}")
+            logger.warning(f"gRPC сервер завершился с кодом: {result.returncode}")
             return result.returncode
             
     except KeyboardInterrupt:
-        logger.info("\n🛑 Принудительная остановка пользователем")
+        logger.info("\nПринудительная остановка пользователем")
         return 130
     except Exception as e:
-        logger.error(f"💥 Ошибка gRPC сервера: {e}")
+        logger.error(f"Ошибка gRPC сервера: {e}")
         return 1
     finally:
         # Гарантированная остановка LLM
         llama_server.stop()
     
-    logger.info("✅ Приложение завершено штатно")
+    logger.info("Приложение завершено штатно")
     return 0
 
 

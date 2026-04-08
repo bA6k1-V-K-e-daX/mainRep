@@ -42,7 +42,6 @@ class DetectorService(detector_pb2_grpc.DetectorServicer):
                 query_id=query_id,
                 dir_path=dir_path,
                 prompt=prompt,
-                min_confidence=0.5,
             )
 
             # === Формирование списка InstanceInfo ===

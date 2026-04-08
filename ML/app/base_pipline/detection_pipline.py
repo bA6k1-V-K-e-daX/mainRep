@@ -1,4 +1,5 @@
 import argparse
+import gc
 import json
 import os
 import re
@@ -28,33 +29,64 @@ from app.base_pipline.sam_pipline import (
 VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
 
 QWEN_LITE_PROMPT = """
-Extract visual objects from the user request. Output ONLY English words separated by " . ".
+Extract ONLY visual objects from user request. Ignore greetings, emotions, filler words. Output English words separated by " . ".
 
-Rules:
-- Lowercase, no explanations, no extra words
-- Extract ONLY entities explicitly mentioned by the user
-- Translate non-English words to English (e.g., "кот" -> "cat", "машина" -> "car")
-- Remove duplicates and obvious synonyms (keep one canonical form)
-- Do NOT expand categories: if user says "animals", output "animal" (not cat.dog.horse)
-- Do NOT add classes not mentioned by the user
-- Skip actions, emotions, places, abstract concepts, weather, time, fictional objects
-- If request contains no visual objects -> output nothing (empty)
+CRITICAL RULES:
+- Lowercase, no extra text
+- Translate to English, use singular
+- Extract ONLY objects (nouns) that can be seen in an image
+- Specific objects ALWAYS override categories: horse NOT animal, banana NOT fruit, house NOT building
+- Skip: greetings, emotions, actions, colors, sizes, "может", "как бы", "хочу", "найти", "помочь"
+- Keep multi-word objects: traffic light, fire truck
+- If user asks for "everything" -> object
+- If no visual objects -> output nothing
 
-Examples:
-User: найди кота и собаку -> cat . dog
-User: машина, авто, автомобиль -> car
-User: bike, bicycle, cycle -> bicycle
-User: воробей, орёл, сова -> sparrow . eagle . owl
-User: человек, люди, персона -> person
-User: животные -> animal
-User: транспорт -> vehicle
-User: птицы -> bird
-User: красивые закаты и эмоции ->
-User: любовь, счастье, грусть ->
-User: время, дата, завтра ->
-User: единорог, дракон, фея ->
-User: найди всё -> object
-User: найти объекты на фото -> object
+EXAMPLES OF CONVERSATIONAL REQUESTS:
+
+User: блин привет жоска хочу найти коня
+Answer: horse
+
+User: может людей, и дартс
+Answer: person . dart
+
+User: а может ещё и домик и банан
+Answer: house . banana
+
+User: блин привет жоска хочу найти коня, может людей, и дартс, а может ещё и домик и банан, можешь мне помочь?
+Answer: horse . person . dart . house . banana
+
+User: найди кота и собаку пожалуйста
+Answer: cat . dog
+
+User: хочу машину красную ну и может быть дом
+Answer: car . house
+
+User: привет, как дела? найди животное такое, ну лошадь
+Answer: horse
+
+User: покажи фрукты, ну банан и яблоко
+Answer: fruit . banana . apple
+
+User: а есть там птицы? ну воробей или орёл
+Answer: bird . sparrow . eagle
+
+User: найди всё что там есть
+Answer: object
+
+User: может там дартс есть?
+Answer: dart
+
+User: привет, найди коня, ну или лошадь, короче
+Answer: horse
+
+User: любовь и счастье найди
+Answer: 
+
+User: время покажи, дату
+Answer: 
+
+User: красивые закаты, эмоции
+Answer: 
 
 Request: {user_prompt}
 Answer:
@@ -929,6 +961,15 @@ def run(
     # Выход из цикла for
     print(f"[DONE] Results saved to: {output_dir}")
     print(f"[DONE] Report saved to: {report_path}")
+
+    # Выгрузка моделей из видеопамяти
+    del detector_model, detector_processor
+    del sam_model, sam_processor
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+    print("[INFO] GPU memory released")
 
 
 def main() -> None:
