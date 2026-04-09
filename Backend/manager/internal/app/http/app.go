@@ -3,7 +3,13 @@ package httpapp
 // Error code: 2500
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"net/http"
+	"time"
+
+	"manager/internal/config"
 
 	"github.com/PrototypeSirius/ruglogger/middleware"
 	logger "github.com/PrototypeSirius/ruglogger/ruglog"
@@ -13,12 +19,14 @@ import (
 
 type HTTPApp struct {
 	ginServer *gin.Engine
-	port      int
+	server    *http.Server
+	address   string
 }
 
-func New(port int) *HTTPApp {
+func New(cfg config.HttpConfig) *HTTPApp {
 	gin.ForceConsoleColor()
 	r := gin.New()
+	r.MaxMultipartMemory = cfg.MaxMultipartMemoryMiB * 1024 * 1024
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
 	r.Use(middleware.StructuredLogHandler())
@@ -30,9 +38,18 @@ func New(port int) *HTTPApp {
 		ExposeHeaders:    []string{"Content-Length", "Authorization"},
 		AllowCredentials: true,
 	}))
+	address := fmt.Sprintf(":%d", cfg.Port)
 	return &HTTPApp{
 		ginServer: r,
-		port:      port,
+		server: &http.Server{
+			Addr:              address,
+			Handler:           r,
+			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       time.Duration(cfg.ReadTimeoutSeconds) * time.Second,
+			WriteTimeout:      time.Duration(cfg.WriteTimeoutSeconds) * time.Second,
+			IdleTimeout:       time.Duration(cfg.IdleTimeoutSeconds) * time.Second,
+		},
+		address: address,
 	}
 }
 
@@ -47,10 +64,16 @@ func (a *HTTPApp) MustRun() {
 }
 
 func (a *HTTPApp) Run() error {
-	addr := fmt.Sprintf(":%d", a.port)
-	logger.Info("HTTP server is running", map[string]any{"address": addr})
-	if err := a.ginServer.Run(addr); err != nil {
+	logger.Info("HTTP server is running", map[string]any{"address": a.address})
+	if err := a.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
+}
+
+func (a *HTTPApp) Shutdown(ctx context.Context) error {
+	if a.server == nil {
+		return nil
+	}
+	return a.server.Shutdown(ctx)
 }

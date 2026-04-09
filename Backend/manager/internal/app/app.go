@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	httpapp "manager/internal/app/http"
 	"manager/internal/config"
 	dbclient "manager/internal/repository/database"
@@ -8,6 +9,7 @@ import (
 	"manager/internal/router"
 	httpservices "manager/internal/services"
 	"strconv"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -36,10 +38,10 @@ func New(cfg *config.Config) *App {
 	mlCli := mlclient.NewClient(mlConn)
 
 	// Build Business Layer
-	httpService := httpservices.New(dbCli, mlCli, cfg.JWTSecret, cfg.TempObjectPath)
+	httpService := httpservices.New(dbCli, mlCli, cfg.JWTSecret, cfg.TempObjectPath, cfg.Processing)
 
 	// Configure HTTP Core Server
-	http := httpapp.New(cfg.HttpServer.Port)
+	http := httpapp.New(cfg.HttpServer)
 
 	// Delegate routing registration
 	router.RouterRegister(http.GetEngine(), httpService, cfg.TempObjectPath)
@@ -53,6 +55,11 @@ func New(cfg *config.Config) *App {
 
 // Close ensures the graceful termination of associated dialers.
 func (a *App) Close() {
+	if a.HTTPApp != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = a.HTTPApp.Shutdown(ctx)
+	}
 	if a.dbConn != nil {
 		a.dbConn.Close()
 	}

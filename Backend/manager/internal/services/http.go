@@ -2,8 +2,11 @@ package httpservices
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
+	"manager/internal/config"
+	"manager/internal/media"
 	"manager/internal/models"
 	dbclientt "manager/internal/repository/database"
 	mlclient "manager/internal/repository/ml"
@@ -20,18 +23,36 @@ import (
 )
 
 type HTTPService struct {
-	dbClient   *dbclientt.Client
-	mlClient   *mlclient.Client
-	jwtSecret  []byte
-	volumePath string
+	dbClient           *dbclientt.Client
+	mlClient           *mlclient.Client
+	jwtSecret          []byte
+	volumePath         string
+	maxFilesPerRequest int
+	mlTimeout          time.Duration
+	videoProcessor     *media.VideoProcessor
 }
 
-func New(db *dbclientt.Client, ml *mlclient.Client, secret string, volumePath string) *HTTPService {
+func New(
+	db *dbclientt.Client,
+	ml *mlclient.Client,
+	secret string,
+	volumePath string,
+	processing config.Processing,
+) *HTTPService {
 	return &HTTPService{
-		dbClient:   db,
-		mlClient:   ml,
-		jwtSecret:  []byte(secret),
-		volumePath: volumePath,
+		dbClient:           db,
+		mlClient:           ml,
+		jwtSecret:          []byte(secret),
+		volumePath:         volumePath,
+		maxFilesPerRequest: processing.MaxFilesPerRequest,
+		mlTimeout:          time.Duration(processing.MLTimeoutSeconds) * time.Second,
+		videoProcessor: media.NewVideoProcessor(media.VideoProcessorConfig{
+			FFmpegPath:  processing.Video.FFmpegPath,
+			FrameRate:   processing.Video.FrameRate,
+			MaxFrames:   processing.Video.MaxFrames,
+			MaxParallel: processing.Video.MaxParallel,
+			Extensions:  processing.Video.Extensions,
+		}),
 	}
 }
 
@@ -147,16 +168,57 @@ func (s *HTTPService) Detect(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No files provided"})
 		return
 	}
+	if len(files) > s.maxFilesPerRequest {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":          "Too many files provided",
+			"max_files":      s.maxFilesPerRequest,
+			"provided_files": len(files),
+		})
+		return
+	}
+
+	uploadedNames := make(map[string]struct{}, len(files))
+	savedFiles := make([]string, 0, len(files))
 
 	for _, file := range files {
+		if _, exists := uploadedNames[file.Filename]; exists {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":    "Duplicate filenames are not allowed in one request",
+				"filename": file.Filename,
+			})
+			return
+		}
+		uploadedNames[file.Filename] = struct{}{}
+
 		destination := filepath.Join(sourceDir, file.Filename)
 		if err := c.SaveUploadedFile(file, destination); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to save file: %s", file.Filename)})
 			return
 		}
+		savedFiles = append(savedFiles, destination)
 	}
 
-	resp, err := s.mlClient.Detect(c.Request.Context(), queryID, s.volumePath, payload.Prompt)
+	mediaSummary := s.videoProcessor.SummarizeFiles(savedFiles)
+	if mediaSummary.ImageFiles == 0 && mediaSummary.VideoFiles == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "No supported image or video files provided",
+		})
+		return
+	}
+
+	generatedFrames, err := s.videoProcessor.ExpandVideos(c.Request.Context(), savedFiles)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Video preprocessing failed",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	mlCtx, cancel := context.WithTimeout(c.Request.Context(), s.mlTimeout)
+	defer cancel()
+
+	resp, err := s.mlClient.Detect(mlCtx, queryID, s.volumePath, payload.Prompt)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "ML Service failure", "details": err.Error()})
 		return
@@ -168,11 +230,15 @@ func (s *HTTPService) Detect(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"query_id":      resp.QueryId,
-		"status":        "Success",
-		"instance_info": resp.InstanceInfo,
-		"total":         resp.TotalObjects,
-		"result_dir":    fmt.Sprintf("/results/%s/result/", queryStrID),
+		"query_id":          resp.QueryId,
+		"status":            "Success",
+		"instance_info":     resp.InstanceInfo,
+		"total":             resp.TotalObjects,
+		"result_dir":        fmt.Sprintf("/results/%s/result/", queryStrID),
+		"uploaded_images":   mediaSummary.ImageFiles,
+		"uploaded_videos":   mediaSummary.VideoFiles,
+		"unsupported_files": mediaSummary.UnsupportedFiles,
+		"generated_frames":  generatedFrames,
 	})
 }
 
@@ -259,6 +325,7 @@ func ParseReport(filePath string) ([]models.ReportEntry, error) {
 
 	var entries []models.ReportEntry
 	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 1024), 10*1024*1024)
 
 	var currentFilename string
 	step := 0

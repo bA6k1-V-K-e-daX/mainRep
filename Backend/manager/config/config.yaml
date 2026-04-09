@@ -7,6 +7,10 @@ jwt_secret: "xui"
 httpserver:
   port: 8080
   host: localhost
+  read_timeout_seconds: 30
+  write_timeout_seconds: 3600
+  idle_timeout_seconds: 120
+  max_multipart_memory_mib: 512
 
 client:
   database:
@@ -16,3 +20,21 @@ client:
   ml:
     host: ml
     port: 50051
+
+processing:
+  max_files_per_request: 256
+  ml_timeout_seconds: 3600
+  video:
+    ffmpeg_path: "ffmpeg"
+    frame_rate: "1"
+    max_frames: 900
+    max_parallel: 2
+    extensions:
+      - ".mp4"
+      - ".mov"
+      - ".avi"
+      - ".mkv"
+      - ".webm"
+      - ".mpeg"
+      - ".mpg"
+      - ".m4v"

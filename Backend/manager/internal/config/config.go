@@ -17,6 +17,7 @@ type Config struct {
 	JWTSecret      string       `yaml:"jwt_secret" env-default:"secret"`
 	HttpServer     HttpConfig   `yaml:"httpserver"` // http server config
 	Client         ClientConfig `yaml:"client"`     // client config
+	Processing     Processing   `yaml:"processing"` // processing config
 }
 
 type ClientConfig struct {
@@ -25,8 +26,26 @@ type ClientConfig struct {
 }
 
 type HttpConfig struct {
-	Port int    `yaml:"port" env-required:"true"` // HTTP port
-	Host string `yaml:"host" env-required:"true"` // HTTP host
+	Port                  int    `yaml:"port" env-required:"true"`                   // HTTP port
+	Host                  string `yaml:"host" env-required:"true"`                   // HTTP host
+	ReadTimeoutSeconds    int    `yaml:"read_timeout_seconds" env-default:"30"`      // HTTP read timeout
+	WriteTimeoutSeconds   int    `yaml:"write_timeout_seconds" env-default:"3600"`   // HTTP write timeout
+	IdleTimeoutSeconds    int    `yaml:"idle_timeout_seconds" env-default:"120"`     // HTTP idle timeout
+	MaxMultipartMemoryMiB int64  `yaml:"max_multipart_memory_mib" env-default:"512"` // multipart memory limit
+}
+
+type Processing struct {
+	MaxFilesPerRequest int         `yaml:"max_files_per_request" env-default:"256"` // max uploaded files in one request
+	MLTimeoutSeconds   int         `yaml:"ml_timeout_seconds" env-default:"3600"`   // ml request timeout
+	Video              VideoConfig `yaml:"video"`                                   // video preprocessing config
+}
+
+type VideoConfig struct {
+	FFmpegPath  string   `yaml:"ffmpeg_path" env-default:"ffmpeg"` // ffmpeg executable
+	FrameRate   string   `yaml:"frame_rate" env-default:"1"`       // extracted frames per second
+	MaxFrames   int      `yaml:"max_frames" env-default:"900"`     // max extracted frames per video
+	MaxParallel int      `yaml:"max_parallel" env-default:"2"`     // parallel video preprocessing jobs
+	Extensions  []string `yaml:"extensions"`                       // supported video extensions
 }
 
 var level logger.Level
@@ -90,7 +109,53 @@ func MustLoad() (*Config, logger.Level) {
 		panic("failed to load config: " + err.Error())
 	}
 	cfg.FormatTime = getTimeLayout(cfg.FormatTime)
+	cfg.normalize()
 	return &cfg, relevel(cfg.Env)
+}
+
+func (c *Config) normalize() {
+	if c.HttpServer.ReadTimeoutSeconds <= 0 {
+		c.HttpServer.ReadTimeoutSeconds = 30
+	}
+	if c.HttpServer.WriteTimeoutSeconds <= 0 {
+		c.HttpServer.WriteTimeoutSeconds = 3600
+	}
+	if c.HttpServer.IdleTimeoutSeconds <= 0 {
+		c.HttpServer.IdleTimeoutSeconds = 120
+	}
+	if c.HttpServer.MaxMultipartMemoryMiB <= 0 {
+		c.HttpServer.MaxMultipartMemoryMiB = 512
+	}
+	if c.Processing.MaxFilesPerRequest <= 0 {
+		c.Processing.MaxFilesPerRequest = 256
+	}
+	if c.Processing.MLTimeoutSeconds <= 0 {
+		c.Processing.MLTimeoutSeconds = 3600
+	}
+	if c.Processing.Video.FFmpegPath == "" {
+		c.Processing.Video.FFmpegPath = "ffmpeg"
+	}
+	if c.Processing.Video.FrameRate == "" {
+		c.Processing.Video.FrameRate = "1"
+	}
+	if c.Processing.Video.MaxFrames <= 0 {
+		c.Processing.Video.MaxFrames = 900
+	}
+	if c.Processing.Video.MaxParallel <= 0 {
+		c.Processing.Video.MaxParallel = 2
+	}
+	if len(c.Processing.Video.Extensions) == 0 {
+		c.Processing.Video.Extensions = []string{
+			".mp4",
+			".mov",
+			".avi",
+			".mkv",
+			".webm",
+			".mpeg",
+			".mpg",
+			".m4v",
+		}
+	}
 }
 
 func fechPathConfig() string {
