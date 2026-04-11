@@ -36,11 +36,11 @@ class LLMConfig:
     
     # Пути для Docker (контейнер) — ✅ ИСПРАВЛЕНО!
     _DEFAULT_SERVER_DOCKER = "/app/llama-bin/llama-server"
-    _DEFAULT_MODEL_DOCKER = "/app/models/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf"
-    
+    _DEFAULT_MODEL_DOCKER = "/app/models/Qwen2.5-3B-Instruct-Q6_K.gguf"
+
     # Пути для Linux (хост)
     _DEFAULT_SERVER_LINUX = "/opt/llama.cpp/llama-server"
-    _DEFAULT_MODEL_LINUX = "/opt/llama.cpp/models/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf"
+    _DEFAULT_MODEL_LINUX = "/opt/llama.cpp/models/Qwen2.5-3B-Instruct-Q6_K.gguf"
     
     @classmethod
     def get_server_path(cls) -> str:
@@ -73,7 +73,7 @@ class LLMConfig:
     CONTEXT = int(os.getenv("LLAMA_CONTEXT", "2048"))
     THREADS = os.getenv("LLAMA_THREADS", "4")
     
-    FLASH_ATTN = os.getenv("LLAMA_FLASH_ATTN", "on")
+    FLASH_ATTN = os.getenv("LLAMA_FLASH_ATTN", "on").lower() in ("true", "1", "on", "yes")
     CACHE_REUSE = os.getenv("LLAMA_CACHE_REUSE", "256")
     NO_MMAP = os.getenv("LLAMA_NO_MMAP", "true").lower() == "true"
     

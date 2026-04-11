@@ -62,15 +62,18 @@ class LlamaServer:
             "-t", str(LLMConfig.THREADS),
         ]
         
-        # === Flash Attention: проверяем поддержку синтаксиса ===
-        if LLMConfig.FLASH_ATTN:
-            # Новый синтаксис (llama.cpp после 2024-09)
-            cmd.extend(["--flash-attn", "on"])
+        # === Flash Attention ===
+        # Docker-билд: булев флаг без значения (--flash-attn)
+        # Windows/новый билд: принимает значение (--flash-attn on|off|auto)
+        if IS_DOCKER:
+            if LLMConfig.FLASH_ATTN:
+                cmd.append("--flash-attn")
         else:
-            cmd.extend(["--flash-attn", "off"])
+            cmd.extend(["--flash-attn", "on" if LLMConfig.FLASH_ATTN else "off"])
         
         # === MMAP ===
-        cmd.append("--no-mmap" if LLMConfig.NO_MMAP else "--mmap")
+        if LLMConfig.NO_MMAP:
+            cmd.append("--no-mmap")
         
         # === Cache reuse ===
         cache_val = str(LLMConfig.CACHE_REUSE).strip()
@@ -138,10 +141,11 @@ class LlamaServer:
             time.sleep(2)  # Даём процессу 2 секунды на старт/краш
 
             if self.process.poll() is not None:
-                # Процесс уже умер! Читаем вывод
-                stdout, _ = self.process.communicate(timeout=5)
                 logger.error(f"❌ llama-server упал сразу! Код: {self.process.returncode}")
-                logger.error(f"📋 Вывод:\n{stdout}")
+                # В Docker stdout идёт напрямую в sys.stdout — читать нечего
+                if self.process.stdout:
+                    stdout, _ = self.process.communicate(timeout=5)
+                    logger.error(f"📋 Вывод:\n{stdout}")
                 return False
             # Ждём готовности
             if self.wait_for_health(timeout):

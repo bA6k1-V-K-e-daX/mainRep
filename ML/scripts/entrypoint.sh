@@ -7,10 +7,10 @@ echo "AI Pipeline Container Starting..."
 # === LLM модель (Qwen2.5 GGUF) ===
 if [ ! -f "$LLAMA_MODEL_PATH" ]; then
     echo "LLM model not found: $LLAMA_MODEL_PATH"
-    echo "Downloading Qwen2.5-1.5B-Instruct-Q4_K_M.gguf ..."
+    echo "Downloading Qwen2.5-3B-Instruct-Q6_K.gguf ..."
     mkdir -p "$(dirname "$LLAMA_MODEL_PATH")"
     wget -q --show-progress \
-        https://huggingface.co/bartowski/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf \
+        https://huggingface.co/bartowski/Qwen2.5-3B-Instruct-GGUF/resolve/main/Qwen2.5-3B-Instruct-Q6_K.gguf \
         -O "$LLAMA_MODEL_PATH"
     echo "LLM model downloaded"
 fi

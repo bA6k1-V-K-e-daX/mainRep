@@ -1,7 +1,7 @@
 # =============================================================================
 # ЭТАП 1: BUILDER — компиляция llama.cpp с CUDA
 # =============================================================================
-FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS builder
+FROM nvidia/cuda:12.6.3-devel-ubuntu22.04 AS builder
 
 # Минимальные зависимости только для сборки
 RUN apt-get update && apt-get install -y \
@@ -34,7 +34,7 @@ RUN mkdir -p ${LLAMA_BIN} && \
 # =============================================================================
 # ЭТАП 2: RUNTIME — минимальный образ для запуска
 # =============================================================================
-FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+FROM nvidia/cuda:12.6.3-runtime-ubuntu22.04
 
 WORKDIR /app
 
@@ -68,7 +68,7 @@ COPY scripts/ ./scripts/
 ENV PYTHONUNBUFFERED=1 \
     RUNNING_IN_DOCKER=true \
     LLAMA_SERVER_PATH=/app/llama-bin/llama-server \
-    LLAMA_MODEL_PATH=/app/models/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf \
+    LLAMA_MODEL_PATH=/app/models/Qwen2.5-3B-Instruct-Q6_K.gguf \
     LLM_SERVICE_URL=http://127.0.0.1:8081 \
     LD_LIBRARY_PATH=/app/llama-bin:${LD_LIBRARY_PATH}
 
