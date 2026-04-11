@@ -11,6 +11,10 @@ from typing import Optional, Tuple
 
 import requests
 
+# Импортируем конфиг для пути к SAM3
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from config.settings import VisionConfig
+
 logger = logging.getLogger(__name__)
 
 _LLM_PORT = int(os.getenv("LLAMA_PORT", "8081"))
@@ -149,6 +153,7 @@ class ImageDetectionUseCase:
             "--text", text,
             "--query-parser", "rule",
             "--output-dir", str(save_path),
+            "--sam3-checkpoint", VisionConfig.get_checkpoint_path(),
         ]
         if original_query:
             cmd += ["--original-query", original_query]

@@ -1,77 +1,102 @@
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import List, Dict, Tuple
 
 import numpy as np
 import torch
 from PIL import Image
-from transformers import SamModel, SamProcessor
+
+from transformers import Sam3Model, Sam3Processor
+
+from config.settings import VisionConfig
 
 
-def pick_best_mask(masks: torch.Tensor, iou_scores: torch.Tensor) -> np.ndarray:
-    masks_cpu = masks.detach().cpu()
-    scores_cpu = iou_scores.detach().cpu()
-
-    if masks_cpu.ndim == 4 and scores_cpu.ndim == 2:
-        best_idx = int(torch.argmax(scores_cpu[0]).item())
-        selected = masks_cpu[0, best_idx]
-    elif masks_cpu.ndim == 3 and scores_cpu.ndim == 1:
-        best_idx = int(torch.argmax(scores_cpu).item())
-        selected = masks_cpu[best_idx]
-    elif masks_cpu.ndim == 2:
-        selected = masks_cpu
-    else:
-        selected = masks_cpu.reshape(-1, masks_cpu.shape[-2], masks_cpu.shape[-1])[0]
-
-    mask_np = selected.numpy() > 0
-    return mask_np.astype(np.uint8) * 255
+def _resize_to_max(image: Image.Image, max_size: int) -> Image.Image:
+    w, h = image.size
+    if max(w, h) <= max_size:
+        return image
+    scale = max_size / max(w, h)
+    return image.resize((int(w * scale), int(h * scale)), Image.Resampling.LANCZOS)
 
 
-def load_sam_components(sam_model_id: str, device: str) -> Tuple[SamProcessor, SamModel]:
-    print(f"[INFO] Loading SAM processor: {sam_model_id}")
-    sam_processor = SamProcessor.from_pretrained(sam_model_id)
-    print(f"[INFO] Loading SAM model: {sam_model_id}")
-    sam_model = SamModel.from_pretrained(sam_model_id).to(device)
-    sam_model.eval()
-    return sam_processor, sam_model
+def load_sam3_components(checkpoint_path: str, device: str) -> Tuple[Sam3Processor, Sam3Model]:
+    """Загружает SAM3 из локальной папки (model.safetensors + config.json).
+    Для CUDA использует fp16 для экономии VRAM."""
+    print(f"[INFO] Loading SAM3 from: {checkpoint_path}")
+    dtype = torch.float16 if device == "cuda" else torch.float32
+    model = Sam3Model.from_pretrained(checkpoint_path, torch_dtype=dtype)
+    model = model.to(device).eval()
+    processor = Sam3Processor.from_pretrained(checkpoint_path)
+    print("[INFO] SAM3 loaded successfully")
+    return processor, model
 
 
-def build_merged_mask_and_report(
-    sam_processor: SamProcessor,
-    sam_model: SamModel,
+def run_sam3_detections(
+    processor: Sam3Processor,
+    model: Sam3Model,
     image: Image.Image,
-    detections: List[Dict[str, object]],
+    labels: List[str],
     device: str,
-) -> Tuple[np.ndarray, List[Dict[str, object]], List[np.ndarray]]:
-    merged_mask = np.zeros((image.height, image.width), dtype=np.uint8)
-    report_detections: List[Dict[str, object]] = []
-    individual_masks: List[np.ndarray] = []
+    score_threshold: float = 0.0,
+) -> List[Dict]:
+    """
+    Запускает SAM3 для каждой текстовой метки.
 
-    for det in detections:
-        box = det["box"]
-        sam_inputs = sam_processor(
-            images=image,
-            input_boxes=[[box]],
-            return_tensors="pt",
-        ).to(device)
+    Возвращает список детекций:
+      [{'label': str, 'score': float, 'box': [x1,y1,x2,y2], '_mask': np.ndarray HxW uint8}]
+
+    '_mask' — бинарная маска (0/255) в пространстве исходного изображения.
+    Ключ '_mask' должен быть удалён перед сохранением в JSON.
+    """
+    orig_w, orig_h = image.size
+    image = _resize_to_max(image, VisionConfig.MAX_IMAGE_SIZE)
+    img_w, img_h = image.size
+    detections: List[Dict] = []
+
+    for label in labels:
+        inputs = processor(images=image, text=label, return_tensors="pt").to(device)
+
         with torch.no_grad():
-            outputs = sam_model(**sam_inputs, multimask_output=True)
+            outputs = model(**inputs)
 
-        masks = sam_processor.image_processor.post_process_masks(
-            outputs.pred_masks.cpu(),
-            sam_inputs["original_sizes"].cpu(),
-            sam_inputs["reshaped_input_sizes"].cpu(),
+        target_sizes = inputs.get("original_sizes")
+        if target_sizes is not None:
+            target_sizes = target_sizes.tolist()
+        else:
+            target_sizes = [[img_h, img_w]]
+
+        results = processor.post_process_instance_segmentation(
+            outputs,
+            threshold=score_threshold,
+            mask_threshold=0.5,
+            target_sizes=target_sizes,
         )[0]
-        iou_scores = outputs.iou_scores[0]
-        box_mask = pick_best_mask(masks, iou_scores)
-        merged_mask = np.maximum(merged_mask, box_mask)
-        individual_masks.append(box_mask)
-        report_detections.append(
-            {
-                "class": str(det.get("label", "unknown")),
-                "confidence": float(det.get("score") or 0.0),
-                "bbox": [float(v) for v in box],
-            }
-        )
 
-    return merged_mask, report_detections, individual_masks
+        masks = results.get("masks", [])
+        scores = results.get("scores", [])
 
+        for mask_t, score_t in zip(masks, scores):
+            score = float(score_t)
+            mask_np = mask_t.cpu().numpy().astype(np.uint8) * 255
+
+            # Resize к оригинальному размеру если нужно
+            if mask_np.shape != (orig_h, orig_w):
+                mask_img = Image.fromarray(mask_np, mode="L").resize(
+                    (orig_w, orig_h), Image.Resampling.NEAREST
+                )
+                mask_np = np.array(mask_img)
+
+            # Bbox из маски
+            coords = np.where(mask_np > 0)
+            if len(coords[0]) == 0:
+                continue
+            y1, y2 = int(coords[0].min()), int(coords[0].max())
+            x1, x2 = int(coords[1].min()), int(coords[1].max())
+
+            detections.append({
+                "label": label,
+                "score": score,
+                "box": [float(x1), float(y1), float(x2), float(y2)],
+                "_mask": mask_np,
+            })
+
+    return detections
