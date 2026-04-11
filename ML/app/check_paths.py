@@ -4,7 +4,7 @@ from pathlib import Path
 
 def main():
     server = os.getenv("LLAMA_SERVER_PATH", "/app/llama-bin/llama-server")
-    model = os.getenv("LLAMA_MODEL_PATH", "/app/models/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf")
+    model = os.getenv("LLAMA_MODEL_PATH", "/app/models/Qwen2.5-3B-Instruct-Q6_K.gguf")
 
     print(f"[CHECK] Server: {server}")
     print(f"[CHECK] Server exists: {Path(server).exists()}")

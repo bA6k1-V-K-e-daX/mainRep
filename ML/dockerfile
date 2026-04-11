@@ -1,7 +1,7 @@
 # =============================================================================
 # ЭТАП 1: BUILDER — компиляция llama.cpp с CUDA
 # =============================================================================
-FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS builder
+FROM nvidia/cuda:12.6.3-devel-ubuntu22.04 AS builder
 
 # Минимальные зависимости только для сборки
 RUN apt-get update && apt-get install -y \
@@ -34,7 +34,7 @@ RUN mkdir -p ${LLAMA_BIN} && \
 # =============================================================================
 # ЭТАП 2: RUNTIME — минимальный образ для запуска
 # =============================================================================
-FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+FROM nvidia/cuda:12.6.3-runtime-ubuntu22.04
 
 WORKDIR /app
 
@@ -49,12 +49,9 @@ RUN apt-get update && apt-get install -y \
 # === Копируем скомпилированный llama-server из builder ===
 COPY --from=builder /build/llama-bin /app/llama-bin
 
-# === Скачивание модели (опционально: можно монтировать volume) ===
+# === Папка для моделей (заполняется через volume или entrypoint) ===
 ENV MODEL_DIR=/app/models
-RUN mkdir -p ${MODEL_DIR} && \
-    wget -q --timeout=300 \
-    https://huggingface.co/bartowski/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf \
-    -O ${MODEL_DIR}/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf
+RUN mkdir -p ${MODEL_DIR}
 
 # === Python зависимости ===
 COPY requirements.txt .
@@ -71,7 +68,7 @@ COPY scripts/ ./scripts/
 ENV PYTHONUNBUFFERED=1 \
     RUNNING_IN_DOCKER=true \
     LLAMA_SERVER_PATH=/app/llama-bin/llama-server \
-    LLAMA_MODEL_PATH=/app/models/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf \
+    LLAMA_MODEL_PATH=/app/models/Qwen2.5-3B-Instruct-Q6_K.gguf \
     LLM_SERVICE_URL=http://127.0.0.1:8081 \
     LD_LIBRARY_PATH=/app/llama-bin:${LD_LIBRARY_PATH}
 
@@ -79,4 +76,6 @@ ENV PYTHONUNBUFFERED=1 \
 EXPOSE 8081 50051
 
 # === Запуск ===
+RUN chmod +x /app/scripts/entrypoint.sh
+ENTRYPOINT ["/app/scripts/entrypoint.sh"]
 CMD ["python3", "main.py"]

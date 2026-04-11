@@ -1,4 +1,5 @@
 import argparse
+import gc
 import json
 import os
 import re
@@ -10,51 +11,78 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import torch
 from PIL import Image, ImageDraw
-from transformers import (
-    AutoModelForZeroShotObjectDetection,
-    AutoProcessor,
-)
 
 project_root = Path(__file__).resolve().parents[2]
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from app.base_pipline.sam_pipline import (
-    build_merged_mask_and_report,
-    load_sam_components,
+    load_sam3_components,
+    run_sam3_detections,
 )
 
 
 VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
 
 QWEN_LITE_PROMPT = """
-Extract visual objects from the user request. Output ONLY English words separated by " . ".
+Extract ONLY visual objects from user request. Ignore greetings, emotions, filler words. Output English words separated by " . ".
 
-Rules:
-- Lowercase, no explanations, no extra words
-- Extract ONLY entities explicitly mentioned by the user
-- Translate non-English words to English (e.g., "кот" -> "cat", "машина" -> "car")
-- Remove duplicates and obvious synonyms (keep one canonical form)
-- Do NOT expand categories: if user says "animals", output "animal" (not cat.dog.horse)
-- Do NOT add classes not mentioned by the user
-- Skip actions, emotions, places, abstract concepts, weather, time, fictional objects
-- If request contains no visual objects -> output nothing (empty)
+CRITICAL RULES:
+- Lowercase, no extra text
+- Translate to English, use singular
+- Extract ONLY objects (nouns) that can be seen in an image
+- Specific objects ALWAYS override categories: horse NOT animal, banana NOT fruit, house NOT building
+- Skip: greetings, emotions, actions, colors, sizes, "может", "как бы", "хочу", "найти", "помочь"
+- Keep multi-word objects: traffic light, fire truck
+- If user asks for "everything" -> object
+- If no visual objects -> output nothing
 
-Examples:
-User: найди кота и собаку -> cat . dog
-User: машина, авто, автомобиль -> car
-User: bike, bicycle, cycle -> bicycle
-User: воробей, орёл, сова -> sparrow . eagle . owl
-User: человек, люди, персона -> person
-User: животные -> animal
-User: транспорт -> vehicle
-User: птицы -> bird
-User: красивые закаты и эмоции ->
-User: любовь, счастье, грусть ->
-User: время, дата, завтра ->
-User: единорог, дракон, фея ->
-User: найди всё -> object
-User: найти объекты на фото -> object
+EXAMPLES OF CONVERSATIONAL REQUESTS:
+
+User: блин привет жоска хочу найти коня
+Answer: horse
+
+User: может людей, и дартс
+Answer: person . dart
+
+User: а может ещё и домик и банан
+Answer: house . banana
+
+User: блин привет жоска хочу найти коня, может людей, и дартс, а может ещё и домик и банан, можешь мне помочь?
+Answer: horse . person . dart . house . banana
+
+User: найди кота и собаку пожалуйста
+Answer: cat . dog
+
+User: хочу машину красную ну и может быть дом
+Answer: car . house
+
+User: привет, как дела? найди животное такое, ну лошадь
+Answer: horse
+
+User: покажи фрукты, ну банан и яблоко
+Answer: fruit . banana . apple
+
+User: а есть там птицы? ну воробей или орёл
+Answer: bird . sparrow . eagle
+
+User: найди всё что там есть
+Answer: object
+
+User: может там дартс есть?
+Answer: dart
+
+User: привет, найди коня, ну или лошадь, короче
+Answer: horse
+
+User: любовь и счастье найди
+Answer: 
+
+User: время покажи, дату
+Answer: 
+
+User: красивые закаты, эмоции
+Answer: 
 
 Request: {user_prompt}
 Answer:
@@ -367,108 +395,6 @@ def save_outputs_colored(
     return mask_path, overlay_path
 
 
-def prepare_image_and_prompts(
-    image: Image.Image,
-    max_side: int,
-    resize_mode: str,
-) -> Tuple[Image.Image, float, Tuple[int, int]]:
-    original_size = image.size
-    width, height = original_size
-    current_max_side = max(width, height)
-
-    if max_side <= 0:
-        return image, 1.0, original_size
-    if resize_mode == "downscale_only" and current_max_side <= max_side:
-        return image, 1.0, original_size
-    if current_max_side == max_side:
-        return image, 1.0, original_size
-
-    scale = max_side / float(current_max_side)
-    new_size = (max(1, int(round(width * scale))), max(1, int(round(height * scale))))
-    resized = image.resize(new_size, Image.Resampling.BILINEAR)
-    return resized, scale, original_size
-
-
-def detect_boxes_from_text(
-    detector_processor: AutoProcessor,
-    detector_model: AutoModelForZeroShotObjectDetection,
-    image: Image.Image,
-    text_prompt: str,
-    device: str,
-    box_threshold: float,
-    text_threshold: float,
-) -> List[Dict[str, object]]:
-    # GroundingDINO works more reliably with dot-terminated prompts.
-    prompt = text_prompt.strip()
-    if not prompt.endswith("."):
-        prompt = f"{prompt}."
-
-    # 1. Получаем данные от процессора (объект BatchEncoding)
-    inputs = detector_processor(images=image, text=prompt, return_tensors="pt").to(device)
-    
-    # 2. ВАЖНО: Сохраняем input_ids ДО превращения inputs в обычный словарь
-    input_ids = inputs["input_ids"]
-    
-    # 3. ИЗМЕНЕНИЯ ДЛЯ FP16 (превращает BatchEncoding в dict)
-    if device == "cuda":
-        inputs = {k: v.half() if v.dtype == torch.float32 else v for k, v in inputs.items()}
-    
-    # 4. Запуск модели
-    with torch.no_grad():
-        with torch.autocast(device_type=device, dtype=torch.float16):
-            outputs = detector_model(**inputs)
-
-    # 5. Пост-процессинг (используем сохранённую переменную input_ids)
-    try:
-        results = detector_processor.post_process_grounded_object_detection(
-            outputs=outputs,
-            input_ids=input_ids,  # ✅ ИСПРАВЛЕНО: используем переменную, а не inputs.input_ids
-            threshold=box_threshold,
-            text_threshold=text_threshold,
-            target_sizes=[image.size[::-1]],
-        )
-    except TypeError:
-        # Compatibility fallback for versions that still expect box_threshold.
-        results = detector_processor.post_process_grounded_object_detection(
-            outputs=outputs,
-            input_ids=input_ids,  # ✅ ИСПРАВЛЕНО: используем переменную, а не inputs.input_ids
-            box_threshold=box_threshold,
-            text_threshold=text_threshold,
-            target_sizes=[image.size[::-1]],
-        )
-        
-    if not results:
-        return []
-
-    payload = results[0]
-    boxes = payload["boxes"].detach().cpu().tolist()
-    scores = payload["scores"].detach().cpu().tolist() if "scores" in payload else [None] * len(boxes)
-    if "text_labels" in payload:
-        labels = payload["text_labels"]
-    elif "labels" in payload:
-        labels = payload["labels"]
-    else:
-        labels = ["unknown"] * len(boxes)
-
-    detections: List[Dict[str, object]] = []
-    for idx, box in enumerate(boxes):
-        score = float(scores[idx]) if scores[idx] is not None else None
-        label = str(labels[idx]) if labels[idx] is not None else "unknown"
-        detections.append(
-            {
-                "label": label,
-                "score": score,
-                "box": [float(v) for v in box],
-            }
-        )
-    return detections
-
-
-def scale_boxes(boxes: List[List[float]], scale: float) -> List[List[float]]:
-    if scale == 1.0:
-        return boxes
-    return [[b[0] * scale, b[1] * scale, b[2] * scale, b[3] * scale] for b in boxes]
-
 
 def save_boxes_preview(
     image: Image.Image,
@@ -636,62 +562,21 @@ def deduplicate_cross_label_detections(
     return kept, dropped
 
 
-def infer_stage_b_labels_from_stage_a(
-    stage_a_detections: List[Dict[str, object]],
-    candidate_labels: List[str],
-    stage1_score_threshold: float,
-    stage1_topk: int,
-) -> List[str]:
-    if not candidate_labels:
-        return []
-
-    scores: Dict[str, float] = {label: 0.0 for label in candidate_labels}
-    for det in stage_a_detections:
-        raw_label = str(det.get("label", "")).lower()
-        det_score = float(det.get("score") or 0.0)
-        for label in candidate_labels:
-            # GroundingDINO labels can contain punctuation or combined pieces.
-            if re.search(rf"(^|[^a-z]){re.escape(label)}([^a-z]|$)", raw_label):
-                if det_score > scores[label]:
-                    scores[label] = det_score
-
-    selected = [label for label, score in scores.items() if score >= stage1_score_threshold]
-    if not selected:
-        ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-        fallback = [label for label, score in ranked if score > 0.0]
-        if fallback:
-            selected = fallback
-        else:
-            # If Stage A gives no usable mapping, keep first labels as conservative fallback.
-            selected = candidate_labels[:]
-
-    if stage1_topk > 0:
-        selected = selected[:stage1_topk]
-    return selected
-
 
 def run(
-    sam_model_id: str,
-    detector_model_id: str,
+    sam3_checkpoint_path: str,
     image_files: Sequence[Path],
     output_dir: Path,
     text_prompt: str,
     target_labels: Optional[List[str]],
     device: str,
-    max_side: int,
     cpu_threads: int,
-    box_threshold: float,
-    text_threshold: float,
     min_box_area_ratio: float,
     max_box_area_ratio: float,
     max_boxes: int,
     min_confidence: float,
     large_box_confidence_override: float,
     dedup_iou_threshold: float,
-    detect_mode: str,
-    stage1_topk: int,
-    stage1_score_threshold: float,
-    resize_mode: str,
     llm_trace: Optional[Dict[str, object]],
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -706,24 +591,16 @@ def run(
         print(f"[INFO] CPU threads: {torch.get_num_threads()}")
 
     run_meta = {
-        "sam_model_id": sam_model_id,
-        "detector_model_id": detector_model_id,
+        "sam3_checkpoint_path": sam3_checkpoint_path,
         "text_prompt": text_prompt,
         "target_labels": target_labels or [],
         "device": device,
-        "max_side": max_side,
-        "box_threshold": box_threshold,
-        "text_threshold": text_threshold,
         "min_box_area_ratio": min_box_area_ratio,
         "max_box_area_ratio": max_box_area_ratio,
         "max_boxes": max_boxes,
         "min_confidence": min_confidence,
         "large_box_confidence_override": large_box_confidence_override,
         "dedup_iou_threshold": dedup_iou_threshold,
-        "detect_mode": detect_mode,
-        "stage1_topk": stage1_topk,
-        "stage1_score_threshold": stage1_score_threshold,
-        "resize_mode": resize_mode,
         "cpu_threads": cpu_threads if device == "cpu" else None,
         "images": [str(p) for p in image_files],
         "llm_trace": llm_trace or {},
@@ -736,92 +613,31 @@ def run(
             json.dumps(llm_trace, indent=2, ensure_ascii=False), encoding="utf-8"
         )
 
-    print(f"[INFO] Loading detector processor: {detector_model_id}")
-    detector_processor = AutoProcessor.from_pretrained(detector_model_id)
-    print(f"[INFO] Loading detector model: {detector_model_id}")
-    detector_model = AutoModelForZeroShotObjectDetection.from_pretrained(detector_model_id).to(device)
-    detector_model.eval()
-
-    # --- ДОБАВИТЬ ЭТОТ БЛОК ДЛЯ FP16 ---
-    if device == "cuda":
-        detector_model = detector_model.half()
-    # -----------------------------------
-
-    sam_processor, sam_model = load_sam_components(sam_model_id=sam_model_id, device=device)
-
-    # --- ДОБАВИТЬ ЭТОТ БЛОК ДЛЯ FP16 ---
-    if device == "cuda":
-        sam_model = sam_model.half()
-    # -----------------------------------
+    # Загружаем SAM3 (fp16 на cuda задаётся внутри load_sam3_components)
+    sam3_processor, sam3_model = load_sam3_components(
+        checkpoint_path=sam3_checkpoint_path,
+        device=device,
+    )
 
     for image_path in image_files:
-        original_image = Image.open(image_path).convert("RGB")
-        image, _resize_scale, original_size = prepare_image_and_prompts(
-            image=original_image,
-            max_side=max_side,
-            resize_mode=resize_mode,
+        image = Image.open(image_path).convert("RGB")
+
+        # Детекция + сегментация за один шаг через SAM3
+        query_labels = target_labels if target_labels else ["object"]
+        raw_detections: List[Dict[str, object]] = run_sam3_detections(
+            processor=sam3_processor,
+            model=sam3_model,
+            image=image,
+            labels=query_labels,
+            device=device,
         )
-        raw_detections: List[Dict[str, object]] = []
-        label_queries = target_labels or []
-        if label_queries and detect_mode == "hybrid":
-            stage_a = detect_boxes_from_text(
-                detector_processor=detector_processor,
-                detector_model=detector_model,
-                image=image,
-                text_prompt=text_prompt,
-                device=device,
-                box_threshold=box_threshold,
-                text_threshold=text_threshold,
-            )
-            stage_b_labels = infer_stage_b_labels_from_stage_a(
-                stage_a_detections=stage_a,
-                candidate_labels=label_queries,
-                stage1_score_threshold=stage1_score_threshold,
-                stage1_topk=stage1_topk,
-            )
-            for label in stage_b_labels:
-                per_label = detect_boxes_from_text(
-                    detector_processor=detector_processor,
-                    detector_model=detector_model,
-                    image=image,
-                    text_prompt=label,
-                    device=device,
-                    box_threshold=box_threshold,
-                    text_threshold=text_threshold,
-                )
-                for det in per_label:
-                    det["label"] = label
-                raw_detections.extend(per_label)
-        elif label_queries:
-            for label in label_queries:
-                per_label = detect_boxes_from_text(
-                    detector_processor=detector_processor,
-                    detector_model=detector_model,
-                    image=image,
-                    text_prompt=label,
-                    device=device,
-                    box_threshold=box_threshold,
-                    text_threshold=text_threshold,
-                )
-                for det in per_label:
-                    det["label"] = label
-                raw_detections.extend(per_label)
-        elif text_prompt.strip():
-            raw_detections = detect_boxes_from_text(
-                detector_processor=detector_processor,
-                detector_model=detector_model,
-                image=image,
-                text_prompt=text_prompt,
-                device=device,
-                box_threshold=box_threshold,
-                text_threshold=text_threshold,
-            )
+
         if not raw_detections:
-            print(f"[WARN] {image_path.name} -> no objects found for prompt: '{text_prompt}'")
+            print(f"[WARN] {image_path.name} -> no objects found for labels: {query_labels}")
             out_prefix = build_image_output_prefix(output_dir, image_path)
             save_detections_json([], image.size, out_prefix)
             save_boxes_preview(image, [], out_prefix, save_when_empty=True)
-            save_empty_segmentation_artifacts(original_image, out_prefix)
+            save_empty_segmentation_artifacts(image, out_prefix)
             append_report_block(report_path, image_path.name, [])
             continue
 
@@ -851,117 +667,98 @@ def run(
                 f"(raw={len(raw_detections)}, dropped={len(dropped)})."
             )
             out_prefix = build_image_output_prefix(output_dir, image_path)
-            save_detections_json(raw_detections, original_size, out_prefix)
+            # Сохраняем raw без маски для дебага
+            raw_for_json = [{k: v for k, v in d.items() if k != "_mask"} for d in raw_detections]
+            save_detections_json(raw_for_json, image.size, out_prefix)
             save_boxes_preview(image, [], out_prefix, save_when_empty=True)
-            save_empty_segmentation_artifacts(original_image, out_prefix)
+            save_empty_segmentation_artifacts(image, out_prefix)
             append_report_block(report_path, image_path.name, [])
             continue
 
         out_prefix = build_image_output_prefix(output_dir, image_path)
-        save_boxes_preview(image, detections, out_prefix)  # Для превью оставляем уменьшенное
-        save_detections_json(raw_detections, original_size, out_prefix)
 
-        # Запуск SAM (на уменьшенном изображении с уменьшенными боксами)
-        if device == "cuda":
-            with torch.autocast(device_type=device, dtype=torch.float16):
-                merged_mask, report_detections, individual_masks = build_merged_mask_and_report(
-                    sam_processor=sam_processor,
-                    sam_model=sam_model,
-                    image=image,  # уменьшенное
-                    detections=detections,  # ещё НЕ масштабированные
-                    device=device,
-                )
-        else:
-            merged_mask, report_detections, individual_masks = build_merged_mask_and_report(
-                sam_processor=sam_processor,
-                sam_model=sam_model,
-                image=image,
-                detections=detections,
-                device=device,
-            )
+        # Детекции без _mask для JSON
+        detections_for_json = [{k: v for k, v in d.items() if k != "_mask"} for d in detections]
+        save_detections_json(detections_for_json, image.size, out_prefix)
+        save_boxes_preview(image, detections_for_json, out_prefix)
 
-        # Масштабируем маски к оригиналу
-        mask_uint8 = merged_mask
-        if image.size != original_size:
-            mask_uint8 = np.array(
-                Image.fromarray(mask_uint8, mode="L").resize(original_size, Image.Resampling.NEAREST)
-            )
-            individual_masks = [
-                np.array(Image.fromarray(m, mode="L").resize(original_size, Image.Resampling.NEAREST))
-                for m in individual_masks
-            ]
-            
-            # Масштабируем боксы к оригиналу (ПОСЛЕ SAM!)
-            scale_x = original_size[0] / image.size[0]
-            scale_y = original_size[1] / image.size[1]
-            scaled_detections = []
-            for det in detections:
-                box = det["box"]
-                scaled_box = [
-                    box[0] * scale_x,
-                    box[1] * scale_y,
-                    box[2] * scale_x,
-                    box[3] * scale_y,
-                ]
-                scaled_detections.append({**det, "box": scaled_box})
-            detections = scaled_detections
+        # Извлекаем маски и строим merged_mask
+        individual_masks: List[np.ndarray] = [det.pop("_mask") for det in detections]
+        merged_mask = np.zeros((image.height, image.width), dtype=np.uint8)
+        for m in individual_masks:
+            merged_mask = np.maximum(merged_mask, m)
+
+        # Формируем report_detections
+        report_detections = [
+            {
+                "class": str(det.get("label", "unknown")),
+                "confidence": float(det.get("score") or 0.0),
+                "bbox": [float(v) for v in det.get("box", [])],
+            }
+            for det in detections
+        ]
 
         mask_path, overlay_path = save_outputs_colored(
-            original_image,
-            mask_uint8,
+            image,
+            merged_mask,
             out_prefix,
-            detections,  # теперь отмасштабированные
-            individual_masks
+            detections,
+            individual_masks,
         )
-        
+
         append_report_block(report_path, image_path.name, report_detections)
         top = detections[0]
         print(
             f"[OK] {image_path.name} -> {mask_path.name}, {overlay_path.name}, "
-            f"boxes={len(detections)}, top={top.get('label')} score={top.get('score')}"
+            f"boxes={len(detections)}, top={top.get('label')} score={top.get('score'):.3f}"
         )
-        
-        # --- ДОБАВИТЬ ЭТОТ БЛОК ---
+
         if device == "cuda":
             torch.cuda.empty_cache()
-        # --------------------------
-        
-    # Выход из цикла for
+
     print(f"[DONE] Results saved to: {output_dir}")
     print(f"[DONE] Report saved to: {report_path}")
+
+    # Выгрузка SAM3 из VRAM
+    del sam3_model, sam3_processor
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+    print("[INFO] GPU memory released")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Text + image segmentation using GroundingDINO (text->boxes) + SAM (boxes->mask)."
+        description="Text-prompted detection + segmentation using SAM3."
     )
     parser.add_argument(
-        "--sam-model-id",
-        default="facebook/sam-vit-base",
-        help="HF model id for SAM.",
-    )
-    parser.add_argument(
-        "--detector-model-id",
-        default="IDEA-Research/grounding-dino-tiny",
-        help="HF model id for text-to-box detector.",
+        "--sam3-checkpoint",
+        default=os.getenv("SAM3_CHECKPOINT_PATH", ""),
+        help="Path to local SAM3 checkpoint file.",
     )
     parser.add_argument("--image", type=Path, help="Path to a single image.")
     parser.add_argument("--images-dir", type=Path, help="Path to a directory with images.")
     parser.add_argument(
         "--text",
         default="object",
-        help="Text prompt, e.g. 'rat' or 'person'. If omitted, generic 'object' is used.",
+        help="Text prompt, e.g. 'cat, dog'. If omitted, generic 'object' is used.",
     )
     parser.add_argument(
         "--query",
         default=None,
-        help="Natural-language query, e.g. 'find all objects' or 'cat, dog'. Overrides --text.",
+        help="Natural-language query. Overrides --text.",
     )
     parser.add_argument(
         "--label-dictionary",
         choices=["none", "coco"],
         default="coco",
         help="Deprecated and ignored.",
+    )
+    parser.add_argument(
+        "--original-query",
+        default=None,
+        help="Original user prompt (before LLM parsing). Stored in llm_parse.json for traceability.",
     )
     parser.add_argument(
         "--output-dir",
@@ -976,34 +773,10 @@ def main() -> None:
         help="Device for inference.",
     )
     parser.add_argument(
-        "--max-side",
-        type=int,
-        default=None,
-        help="Resize image to this max side before inference (faster, less RAM).",
-    )
-    parser.add_argument(
         "--cpu-threads",
         type=int,
         default=max(1, (os.cpu_count() or 4) // 2),
         help="Number of CPU threads for torch.",
-    )
-    parser.add_argument(
-        "--preset",
-        choices=["cpu_safe", "balanced", "quality"],
-        default="cpu_safe",
-        help="Runtime profile. cpu_safe is default for weak hardware.",
-    )
-    parser.add_argument(
-        "--box-threshold",
-        type=float,
-        default=0.25,
-        help="Detector confidence threshold for boxes.",
-    )
-    parser.add_argument(
-        "--text-threshold",
-        type=float,
-        default=0.20,
-        help="Detector text match threshold.",
     )
     parser.add_argument(
         "--min-box-area-ratio",
@@ -1021,12 +794,12 @@ def main() -> None:
         "--max-boxes",
         type=int,
         default=20,
-        help="Maximum number of boxes to pass to SAM after filtering.",
+        help="Maximum number of detections to keep after filtering.",
     )
     parser.add_argument(
         "--min-confidence",
         type=float,
-        default=0.45,
+        default=0.30,
         help="Minimum detection confidence to keep.",
     )
     parser.add_argument(
@@ -1044,13 +817,13 @@ def main() -> None:
     parser.add_argument(
         "--no-filters",
         action="store_true",
-        help="Disable area/box limits (useful for quick full-pass batch runs).",
+        help="Disable area/box limits.",
     )
     parser.add_argument(
         "--filters-mode",
         choices=["auto", "on", "off"],
         default="auto",
-        help="Filter behavior: on/off or auto (recommended: auto keeps filters enabled).",
+        help="Filter behavior: on/off or auto.",
     )
     parser.add_argument(
         "--query-parser",
@@ -1061,7 +834,7 @@ def main() -> None:
     parser.add_argument(
         "--llm-model-id",
         default="Qwen/Qwen2.5-1.5B-Instruct",
-        help="LLM for query-to-label parsing.",
+        help="LLM for query-to-label parsing (unused, kept for compatibility).",
     )
     parser.add_argument(
         "--llm-max-new-tokens",
@@ -1075,47 +848,15 @@ def main() -> None:
         default=True,
         help="Stop pipeline if no valid classes extracted from user query.",
     )
-    parser.add_argument(
-        "--resize-mode",
-        choices=["downscale_only", "force"],
-        default="downscale_only",
-        help="Resize policy: downscale_only avoids upscaling small images.",
-    )
-    parser.add_argument(
-        "--detect-mode",
-        choices=["per_class", "hybrid", "single_prompt"],
-        default="hybrid",
-        help="Detection strategy: hybrid does stage-A then per-class stage-B.",
-    )
-    parser.add_argument(
-        "--stage1-topk",
-        type=int,
-        default=5,
-        help="In hybrid mode, run Stage-B only for top-K labels.",
-    )
-    parser.add_argument(
-        "--stage1-score-threshold",
-        type=float,
-        default=0.30,
-        help="In hybrid mode, keep labels from Stage-A above this score.",
-    )
     args = parser.parse_args()
-
-    if args.max_side is None:
-        if args.preset == "cpu_safe":
-            args.max_side = 768
-        elif args.preset == "balanced":
-            args.max_side = 1024
-        else:
-            args.max_side = 1536
 
     user_query = args.query if args.query is not None else args.text
     llm_trace: Dict[str, object] = {
         "query_parser": args.query_parser,
+        "original_query": args.original_query or "",
         "user_query": user_query,
         "llm_model_id": args.llm_model_id,
         "status": "not_used",
-        "raw_text": "",
         "labels": [],
         "error": "",
     }
@@ -1213,43 +954,25 @@ def main() -> None:
         disable_filters = args.no_filters
 
     if disable_filters:
-        args.box_threshold = 0.0
-        args.text_threshold = 0.0
         args.min_box_area_ratio = 0.0
         args.max_box_area_ratio = 1.0
         args.max_boxes = 0
-    else:
-        # Safe defaults to avoid giant noisy outputs in "find all" mode.
-        if args.box_threshold <= 0.0:
-            args.box_threshold = 0.25
-        if args.text_threshold <= 0.0:
-            args.text_threshold = 0.25
-        if args.max_boxes <= 0:
-            args.max_boxes = 5
 
     images = collect_images(args.image, args.images_dir)
     run(
-        sam_model_id=args.sam_model_id,
-        detector_model_id=args.detector_model_id,
+        sam3_checkpoint_path=args.sam3_checkpoint,
         image_files=images,
         output_dir=args.output_dir,
         text_prompt=effective_prompt,
         target_labels=target_labels,
         device=args.device,
-        max_side=args.max_side,
         cpu_threads=max(1, args.cpu_threads),
-        box_threshold=args.box_threshold,
-        text_threshold=args.text_threshold,
         min_box_area_ratio=max(0.0, args.min_box_area_ratio),
         max_box_area_ratio=min(1.0, args.max_box_area_ratio),
         max_boxes=max(0, args.max_boxes),
         min_confidence=max(0.0, min(1.0, args.min_confidence)),
         large_box_confidence_override=max(0.0, min(1.0, args.large_box_confidence_override)),
         dedup_iou_threshold=max(0.0, min(1.0, args.dedup_iou_threshold)),
-        detect_mode=args.detect_mode,
-        stage1_topk=max(0, args.stage1_topk),
-        stage1_score_threshold=max(0.0, min(1.0, args.stage1_score_threshold)),
-        resize_mode=args.resize_mode,
         llm_trace=llm_trace,
     )
 def get_distinct_color(index: int) -> Tuple[int, int, int]:
