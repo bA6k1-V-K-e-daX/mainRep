@@ -20,6 +20,7 @@ from app.base_pipline.sam_pipline import (
     load_sam3_components,
     run_sam3_detections,
 )
+from config.settings import VisionConfig
 
 
 VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
@@ -53,6 +54,9 @@ Answer: horse . person . dart . house . banana
 
 User: найди кота и собаку пожалуйста
 Answer: cat . dog
+
+User: кота хочу
+Answer: cat
 
 User: хочу машину красную ну и может быть дом
 Answer: car . house
@@ -619,102 +623,103 @@ def run(
         device=device,
     )
 
-    for image_path in image_files:
-        image = Image.open(image_path).convert("RGB")
+    query_labels = target_labels if target_labels else ["object"]
+    image_batch_size = VisionConfig.IMAGE_BATCH_SIZE
 
-        # Детекция + сегментация за один шаг через SAM3
-        query_labels = target_labels if target_labels else ["object"]
-        raw_detections: List[Dict[str, object]] = run_sam3_detections(
+    for batch_start in range(0, len(image_files), image_batch_size):
+        batch_paths = image_files[batch_start : batch_start + image_batch_size]
+        batch_images = [Image.open(p).convert("RGB") for p in batch_paths]
+
+        # Детекция + сегментация за один шаг через SAM3 (батч изображений)
+        batch_detections: List[List[Dict[str, object]]] = run_sam3_detections(
             processor=sam3_processor,
             model=sam3_model,
-            image=image,
+            images=batch_images,
             labels=query_labels,
             device=device,
         )
 
-        if not raw_detections:
-            print(f"[WARN] {image_path.name} -> no objects found for labels: {query_labels}")
-            out_prefix = build_image_output_prefix(output_dir, image_path)
-            save_detections_json([], image.size, out_prefix)
-            save_boxes_preview(image, [], out_prefix, save_when_empty=True)
-            save_empty_segmentation_artifacts(image, out_prefix)
-            append_report_block(report_path, image_path.name, [])
-            continue
+        for image_path, image, raw_detections in zip(batch_paths, batch_images, batch_detections):
+            if not raw_detections:
+                print(f"[WARN] {image_path.name} -> no objects found for labels: {query_labels}")
+                out_prefix = build_image_output_prefix(output_dir, image_path)
+                save_detections_json([], image.size, out_prefix)
+                save_boxes_preview(image, [], out_prefix, save_when_empty=True)
+                save_empty_segmentation_artifacts(image, out_prefix)
+                append_report_block(report_path, image_path.name, [])
+                continue
 
-        deduped, dedup_dropped = deduplicate_cross_label_detections(
-            detections=raw_detections,
-            iou_threshold=dedup_iou_threshold,
-        )
-        detections, dropped = filter_detections_by_area(
-            detections=deduped,
-            image_size=image.size,
-            min_box_area_ratio=min_box_area_ratio,
-            max_box_area_ratio=max_box_area_ratio,
-            large_box_confidence_override=large_box_confidence_override,
-        )
-        dropped.extend(dedup_dropped)
-        detections, dropped_by_conf = filter_detections_by_confidence(
-            detections=detections,
-            min_confidence=min_confidence,
-        )
-        dropped.extend(dropped_by_conf)
-        if max_boxes > 0:
-            detections = detections[:max_boxes]
-
-        if not detections:
-            print(
-                f"[WARN] {image_path.name} -> all boxes filtered out "
-                f"(raw={len(raw_detections)}, dropped={len(dropped)})."
+            deduped, dedup_dropped = deduplicate_cross_label_detections(
+                detections=raw_detections,
+                iou_threshold=dedup_iou_threshold,
             )
+            detections, dropped = filter_detections_by_area(
+                detections=deduped,
+                image_size=image.size,
+                min_box_area_ratio=min_box_area_ratio,
+                max_box_area_ratio=max_box_area_ratio,
+                large_box_confidence_override=large_box_confidence_override,
+            )
+            dropped.extend(dedup_dropped)
+            detections, dropped_by_conf = filter_detections_by_confidence(
+                detections=detections,
+                min_confidence=min_confidence,
+            )
+            dropped.extend(dropped_by_conf)
+            if max_boxes > 0:
+                detections = detections[:max_boxes]
+
+            if not detections:
+                print(
+                    f"[WARN] {image_path.name} -> all boxes filtered out "
+                    f"(raw={len(raw_detections)}, dropped={len(dropped)})."
+                )
+                out_prefix = build_image_output_prefix(output_dir, image_path)
+                # Сохраняем raw без маски для дебага
+                raw_for_json = [{k: v for k, v in d.items() if k != "_mask"} for d in raw_detections]
+                save_detections_json(raw_for_json, image.size, out_prefix)
+                save_boxes_preview(image, [], out_prefix, save_when_empty=True)
+                save_empty_segmentation_artifacts(image, out_prefix)
+                append_report_block(report_path, image_path.name, [])
+                continue
+
             out_prefix = build_image_output_prefix(output_dir, image_path)
-            # Сохраняем raw без маски для дебага
-            raw_for_json = [{k: v for k, v in d.items() if k != "_mask"} for d in raw_detections]
-            save_detections_json(raw_for_json, image.size, out_prefix)
-            save_boxes_preview(image, [], out_prefix, save_when_empty=True)
-            save_empty_segmentation_artifacts(image, out_prefix)
-            append_report_block(report_path, image_path.name, [])
-            continue
 
-        out_prefix = build_image_output_prefix(output_dir, image_path)
+            # Детекции без _mask для JSON
+            detections_for_json = [{k: v for k, v in d.items() if k != "_mask"} for d in detections]
+            save_detections_json(detections_for_json, image.size, out_prefix)
+            save_boxes_preview(image, detections_for_json, out_prefix)
 
-        # Детекции без _mask для JSON
-        detections_for_json = [{k: v for k, v in d.items() if k != "_mask"} for d in detections]
-        save_detections_json(detections_for_json, image.size, out_prefix)
-        save_boxes_preview(image, detections_for_json, out_prefix)
+            # Извлекаем маски и строим merged_mask
+            individual_masks: List[np.ndarray] = [det.pop("_mask") for det in detections]
+            merged_mask = np.zeros((image.height, image.width), dtype=np.uint8)
+            for m in individual_masks:
+                merged_mask = np.maximum(merged_mask, m)
 
-        # Извлекаем маски и строим merged_mask
-        individual_masks: List[np.ndarray] = [det.pop("_mask") for det in detections]
-        merged_mask = np.zeros((image.height, image.width), dtype=np.uint8)
-        for m in individual_masks:
-            merged_mask = np.maximum(merged_mask, m)
+            # Формируем report_detections
+            report_detections = [
+                {
+                    "class": str(det.get("label", "unknown")),
+                    "confidence": float(det.get("score") or 0.0),
+                    "bbox": [float(v) for v in det.get("box", [])],
+                }
+                for det in detections
+            ]
 
-        # Формируем report_detections
-        report_detections = [
-            {
-                "class": str(det.get("label", "unknown")),
-                "confidence": float(det.get("score") or 0.0),
-                "bbox": [float(v) for v in det.get("box", [])],
-            }
-            for det in detections
-        ]
+            mask_path, overlay_path = save_outputs_colored(
+                image,
+                merged_mask,
+                out_prefix,
+                detections,
+                individual_masks,
+            )
 
-        mask_path, overlay_path = save_outputs_colored(
-            image,
-            merged_mask,
-            out_prefix,
-            detections,
-            individual_masks,
-        )
-
-        append_report_block(report_path, image_path.name, report_detections)
-        top = detections[0]
-        print(
-            f"[OK] {image_path.name} -> {mask_path.name}, {overlay_path.name}, "
-            f"boxes={len(detections)}, top={top.get('label')} score={top.get('score'):.3f}"
-        )
-
-        if device == "cuda":
-            torch.cuda.empty_cache()
+            append_report_block(report_path, image_path.name, report_detections)
+            top = detections[0]
+            print(
+                f"[OK] {image_path.name} -> {mask_path.name}, {overlay_path.name}, "
+                f"boxes={len(detections)}, top={top.get('label')} score={top.get('score'):.3f}"
+            )
 
     print(f"[DONE] Results saved to: {output_dir}")
     print(f"[DONE] Report saved to: {report_path}")

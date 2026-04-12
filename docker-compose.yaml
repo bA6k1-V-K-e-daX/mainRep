@@ -21,6 +21,8 @@ services:
       - LLAMA_THREADS=4
       - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
       - CUDA_VISIBLE_DEVICES=0
+      - SAM3_MAX_IMAGE_SIZE=1008
+      - SAM3_IMAGE_BATCH_SIZE=1
     deploy:
       resources:
         reservations:
@@ -33,7 +35,7 @@ services:
       interval: 10s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 999s
     restart: unless-stopped
     shm_size: '2gb'
   db:
