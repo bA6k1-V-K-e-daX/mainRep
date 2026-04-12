@@ -113,7 +113,8 @@ class VisionConfig:
     # Порог уверенности для детекций SAM3
     SCORE_THRESHOLD = float(os.getenv("SAM3_SCORE_THRESHOLD", "0.30"))
     MAX_BOXES = int(os.getenv("SAM3_MAX_BOXES", "20"))
-    MAX_IMAGE_SIZE = int(os.getenv("SAM3_MAX_IMAGE_SIZE", "672"))
+    MAX_IMAGE_SIZE = int(os.getenv("SAM3_MAX_IMAGE_SIZE", "512"))
+    IMAGE_BATCH_SIZE = int(os.getenv("SAM3_IMAGE_BATCH_SIZE", "2"))
 
 
 # === gRPC Сервер ===
