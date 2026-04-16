@@ -5,7 +5,7 @@ export default function TryPeeky() {
   return (
     <div className='flex justify-between mt-30 mb-20 max-w-350 mx-auto'>
       <div className=''>
-        <img src='Rectangle_15.png' alt='' />
+        <img src='big_logo.png' alt='' />
       </div>
       <div className='flex flex-col max-w-162.5 justify-between'>
         <div>

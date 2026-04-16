@@ -6,7 +6,7 @@ import {
 } from "react-router-dom";
 import "./App.css";
 
-import { MediaProvider } from "./context/MediaContext";
+import { MediaProvider } from "./context/MediaProvider";
 import Workspace from "./Pages/Workspace";
 import GreetingsPage from "./Pages/GreetingsPage";
 import Auth from "./Pages/Auth";
