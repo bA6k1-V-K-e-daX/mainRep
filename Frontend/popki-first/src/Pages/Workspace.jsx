@@ -49,7 +49,7 @@ export default function Workspace() {
       className={`flex flex-col lg:flex-row h-screen w-full text-white font-sans ${bgDarkest} overflow-hidden`}
     >
       {/* ЛЕВАЯ ПАНЕЛЬ - скрыта на мобилке, видна на lg; fixed width на desktop */}
-      <aside className='hidden lg:flex lg:w-64 xl:w-72 2xl:w-80 flex-col p-4 md:p-5 lg:p-6 border-b lg:border-b-0 lg:border-r border-white/5 flex-shrink-0 overflow-y-auto'>
+      <aside className='hidden lg:flex lg:w-64 xl:w-72 2xl:w-80 flex-col p-4 md:p-5 lg:p-6 border-b lg:border-b-0 lg:border-r border-white/5 shrink-0 overflow-y-auto'>
         <div className='flex items-center gap-2 mb-8'>
           <div className='w-6 h-6 rounded-full bg-white flex items-center justify-center shrink-0'>
             <span className='text-black text-xs font-bold'>P</span>
@@ -143,7 +143,7 @@ export default function Workspace() {
       </main>
 
       {/* ПРАВАЯ ПАНЕЛЬ - скрыта на мобилке, видна на lg; fixed width на desktop */}
-      <aside className='hidden lg:flex lg:w-80 xl:w-96 2xl:w-[28rem] flex-col p-4 md:p-5 lg:p-6 border-t lg:border-t-0 lg:border-l border-white/5 flex-shrink-0 overflow-y-auto'>
+      <aside className='hidden lg:flex lg:w-80 xl:w-96 2xl:w-md flex-col p-4 md:p-5 lg:p-6 border-t lg:border-t-0 lg:border-l border-white/5 shrink-0 overflow-y-auto'>
         <h2 className='text-xs text-gray-500 mb-1 md:mb-2'>Ваши файлы</h2>
         <h1 className='text-lg md:text-xl lg:text-xl font-light mb-4 md:mb-6 lg:mb-8 text-gray-200'>
           Результат работы

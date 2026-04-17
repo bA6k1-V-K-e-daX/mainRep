@@ -6,17 +6,19 @@ const FAQItem = ({ question, answer, number }) => {
   return (
     <div className='border-b border-blue-800 pb-2 mb-4 last:mb-0'>
       <button
-        className='flex w-full text-white text-left py-4 focus:outline-none justify-between items-center'
+        className='flex w-full items-center justify-between py-4 text-left text-white focus:outline-none md:py-5'
         onClick={() => setIsOpen(!isOpen)}
       >
         <div className='flex items-center'>
-          <span className='text-[24px] mr-4 font-thin'>
+          <span className='mr-3 text-lg font-thin md:mr-4 md:text-2xl'>
             {number.toString().padStart(2, "0")}
           </span>
-          <span className='text-[32px] font-thin'>{question}</span>
+          <span className='text-xl font-thin leading-tight md:text-2xl lg:text-3xl'>
+            {question}
+          </span>
         </div>
         <svg
-          className={`w-8 h-8 transform transition-transform duration-300 ${isOpen ? "rotate-180" : ""}`}
+          className={`h-6 w-6 transform transition-transform duration-300 md:h-8 md:w-8 ${isOpen ? "rotate-180" : ""}`}
           fill='none'
           stroke='currentColor'
           viewBox='0 0 24 24'
@@ -35,7 +37,7 @@ const FAQItem = ({ question, answer, number }) => {
           isOpen ? "max-h-96 opacity-100" : "max-h-0 opacity-0"
         }`}
       >
-        <div className='py-2 pl-12 text-gray-300'>
+        <div className='py-2 pl-8 text-gray-300 md:pl-12'>
           <h5>{answer}</h5>
         </div>
       </div>
@@ -68,8 +70,8 @@ const FAQs = () => {
   ];
 
   return (
-    <div className='min-h-screen flex items-center justify-center'>
-      <div className='w-full max-w-350'>
+    <div className='flex min-h-screen items-center justify-center py-8 lg:py-12'>
+      <div className='w-full max-w-5xl xl:max-w-7xl'>
         {faqsData.map((faq, index) => (
           <FAQItem
             key={index}

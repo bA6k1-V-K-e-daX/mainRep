@@ -1,10 +1,10 @@
 export default function About() {
   return (
-    <div className='flex justify-between items-center min-h-screen'>
-      <div className='relative flex max-w-163 w-full h-100'>
+    <div className='flex min-h-screen flex-col items-center gap-10 py-8 lg:flex-row lg:items-center lg:justify-between lg:gap-12 lg:py-12'>
+      <div className='relative flex h-104 w-full lg:h-120 lg:max-w-3xl'>
         {/* Rectangle 10 (верхний левый) */}
         <div
-          className='absolute w-96 h-auto rounded-2xl overflow-hidden shadow-lg z-10 transition-all duration-300 hover:-translate-y-4 hover:-translate-x-4'
+          className='absolute z-10 h-auto w-56 overflow-hidden rounded-2xl shadow-lg transition-all duration-300 hover:-translate-x-4 hover:-translate-y-4 md:w-64 lg:w-72 xl:w-80'
           style={{
             top: "50%",
             left: "45%",
@@ -20,7 +20,7 @@ export default function About() {
 
         {/* Rectangle 12 (центр) */}
         <div
-          className='absolute w-96 h-auto rounded-2xl overflow-hidden shadow-2xl z-30 transition-all duration-300 hover:-translate-y-4'
+          className='absolute z-30 h-auto w-56 overflow-hidden rounded-2xl shadow-2xl transition-all duration-300 hover:-translate-y-4 md:w-64 lg:w-72 xl:w-80'
           style={{
             top: "50%",
             left: "50%",
@@ -36,7 +36,7 @@ export default function About() {
 
         {/* Rectangle 11 (нижний правый) */}
         <div
-          className='absolute w-96 h-auto rounded-2xl overflow-hidden shadow-lg z-20 transition-all duration-300 hover:-translate-y-4 hover:translate-x-4'
+          className='absolute z-20 h-auto w-56 overflow-hidden rounded-2xl shadow-lg transition-all duration-300 hover:translate-x-4 hover:-translate-y-4 md:w-64 lg:w-72 xl:w-80'
           style={{
             top: "15%",
             left: "55%",
@@ -50,11 +50,13 @@ export default function About() {
           />
         </div>
       </div>
-      <div className='w-134.75 '>
-        <h1 className='font-semibold'>Один сервис — множество сценариев</h1>
+      <div className='w-full lg:max-w-xl'>
+        <h1 className='font-semibold text-3xl leading-tight md:text-4xl lg:text-5xl'>
+          Один сервис — множество сценариев
+        </h1>
 
         <ul
-          className='mt-4.5 list-disc list-inside'
+          className='mt-6 list-inside list-disc space-y-2 text-base md:text-lg'
           style={{ fontWeight: 300 }}
         >
           <li>E-commerce: Автоматические теги и категории.</li>
