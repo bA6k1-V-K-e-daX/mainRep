@@ -70,7 +70,7 @@ const FAQs = () => {
   ];
 
   return (
-    <div className='flex min-h-screen items-center justify-center py-8 lg:py-12'>
+    <div className='flex min-h-80 items-center justify-center py-8 lg:py-12'>
       <div className='w-full max-w-5xl xl:max-w-7xl'>
         {faqsData.map((faq, index) => (
           <FAQItem

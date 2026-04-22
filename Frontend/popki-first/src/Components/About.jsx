@@ -38,9 +38,9 @@ export default function About() {
         <div
           className='absolute z-20 h-auto w-56 overflow-hidden rounded-2xl shadow-lg transition-all duration-300 hover:translate-x-4 hover:-translate-y-4 md:w-64 lg:w-72 xl:w-80'
           style={{
-            top: "15%",
+            top: "50%",
             left: "55%",
-            transform: "translate(-30%, -20%) rotate(15deg)",
+            transform: "translate(-30%, -80%) rotate(15deg)",
           }}
         >
           <img
@@ -51,12 +51,12 @@ export default function About() {
         </div>
       </div>
       <div className='w-full lg:max-w-xl'>
-        <h1 className='font-semibold text-3xl leading-tight md:text-4xl lg:text-5xl'>
+        <h3 className='font-semibold text-center text-2xl leading-tight md:text-4xl lg:text-4xl lg:text-start'>
           Один сервис — множество сценариев
-        </h1>
+        </h3>
 
         <ul
-          className='mt-6 list-inside list-disc space-y-2 text-base md:text-lg'
+          className='mt-6 list-outside list-disc space-y-2 pl-5 text-base leading-tight md:text-lg'
           style={{ fontWeight: 300 }}
         >
           <li>E-commerce: Автоматические теги и категории.</li>

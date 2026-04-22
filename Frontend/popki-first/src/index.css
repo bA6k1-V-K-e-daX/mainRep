@@ -27,9 +27,8 @@ a:hover {
 }
 
 p {
-  font-size: 22px;
-  font-weight: lighter;
-  line-height: 1.5;
+  font-weight: normal;
+  line-height: 1.2;
 }
 
 body {
@@ -46,8 +45,7 @@ h1 {
 
 h4 {
   font-weight: bold;
-  font-size: 3.5em;
-  line-height: 1.143;
+  line-height: 1.5;
 }
 
 h5 {
@@ -57,7 +55,6 @@ h5 {
 }
 
 button {
-  font-weight: 500;
   font-family: inherit;
   cursor: pointer;
   transition: all 0.25s;
