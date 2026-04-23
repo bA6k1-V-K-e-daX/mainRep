@@ -52,34 +52,32 @@ class LlamaServer:
         self._started = False
     
     def build_command(self) -> list[str]:
+        """
+        Команда запуска для Gemma 4 Vision:
+        llama-server -m <model>.gguf --mmproj <mmproj>.gguf -c 8192
+            --host <host> --port <port> -ngl 20
+            --batch-size 256 --ubatch-size 256
+            --no-kv-offload --parallel 1 --flash-attn on
+        """
         cmd = [
             str(Path(LLMConfig.get_server_path())),
             "-m", str(Path(LLMConfig.get_model_path())),
-            "-ngl", str(LLMConfig.NGL),
+            "--mmproj", str(Path(LLMConfig.get_mmproj_path())),
             "-c", str(LLMConfig.CONTEXT),
             "--host", LLMConfig.HOST,
             "--port", str(LLMConfig.PORT),
-            "-t", str(LLMConfig.THREADS),
+            "-ngl", str(LLMConfig.NGL),
+            "--batch-size", str(LLMConfig.BATCH_SIZE),
+            "--ubatch-size", str(LLMConfig.UBATCH_SIZE),
+            "--parallel", str(LLMConfig.PARALLEL),
         ]
-        
-        # === Flash Attention ===
-        # Docker-билд: булев флаг без значения (--flash-attn)
-        # Windows/новый билд: принимает значение (--flash-attn on|off|auto)
-        if IS_DOCKER:
-            if LLMConfig.FLASH_ATTN:
-                cmd.append("--flash-attn")
-        else:
-            cmd.extend(["--flash-attn", "on" if LLMConfig.FLASH_ATTN else "off"])
-        
-        # === MMAP ===
-        if LLMConfig.NO_MMAP:
-            cmd.append("--no-mmap")
-        
-        # === Cache reuse ===
-        cache_val = str(LLMConfig.CACHE_REUSE).strip()
-        if cache_val and cache_val not in ("0", "false", "off"):
-            cmd.extend(["--cache-reuse", cache_val])
-        
+
+        if LLMConfig.NO_KV_OFFLOAD:
+            cmd.append("--no-kv-offload")
+
+        # Flash-attn в формате "on"/"off" — требуется для Gemma сборок
+        cmd.extend(["--flash-attn", "on" if LLMConfig.FLASH_ATTN else "off"])
+
         return cmd
     
     def start(self, timeout: int = 120) -> bool:
@@ -99,12 +97,16 @@ class LlamaServer:
         # Проверка путей
         server_path = Path(LLMConfig.get_server_path())
         model_path = Path(LLMConfig.get_model_path())
-        
+        mmproj_path = Path(LLMConfig.get_mmproj_path())
+
         if not server_path.exists():
             logger.error(f"llama-server не найден: {server_path}")
             return False
         if not model_path.exists():
             logger.error(f"Модель не найдена: {model_path}")
+            return False
+        if not mmproj_path.exists():
+            logger.error(f"mmproj не найден: {mmproj_path}")
             return False
         
         cmd = self.build_command()

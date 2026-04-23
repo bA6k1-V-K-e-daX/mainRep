@@ -68,12 +68,15 @@ COPY scripts/ ./scripts/
 ENV PYTHONUNBUFFERED=1 \
     RUNNING_IN_DOCKER=true \
     LLAMA_SERVER_PATH=/app/llama-bin/llama-server \
-    LLAMA_MODEL_PATH=/app/models/Qwen2.5-3B-Instruct-Q6_K.gguf \
-    LLM_SERVICE_URL=http://127.0.0.1:8081 \
+    LLAMA_MODEL_PATH=/app/models/google_gemma-4-E4B-it-Q4_K_M.gguf \
+    LLAMA_MMPROJ_PATH=/app/models/mmproj-google_gemma-4-E4B-it-f16.gguf \
+    LLAMA_PORT=8000 \
+    LLAMA_HOST=127.0.0.1 \
+    LLM_SERVICE_URL=http://127.0.0.1:8000 \
     LD_LIBRARY_PATH=/app/llama-bin:${LD_LIBRARY_PATH}
 
 # === Порты ===
-EXPOSE 8081 50051
+EXPOSE 8000 50051
 
 # === Запуск ===
 RUN chmod +x /app/scripts/entrypoint.sh

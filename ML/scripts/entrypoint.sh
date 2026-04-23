@@ -4,15 +4,25 @@ set -e
 
 echo "AI Pipeline Container Starting..."
 
-# === LLM модель (Qwen2.5 GGUF) ===
+# === Gemma 4 Vision GGUF (основная модель) ===
+: "${LLAMA_MODEL_URL:=https://huggingface.co/bartowski/google_gemma-4-E4B-it-GGUF/resolve/main/google_gemma-4-E4B-it-Q4_K_M.gguf}"
+: "${LLAMA_MMPROJ_URL:=https://huggingface.co/bartowski/google_gemma-4-E4B-it-GGUF/resolve/main/mmproj-google_gemma-4-E4B-it-f16.gguf}"
+
 if [ ! -f "$LLAMA_MODEL_PATH" ]; then
     echo "LLM model not found: $LLAMA_MODEL_PATH"
-    echo "Downloading Qwen2.5-3B-Instruct-Q6_K.gguf ..."
+    echo "Downloading google_gemma-4-E4B-it-Q4_K_M.gguf ..."
     mkdir -p "$(dirname "$LLAMA_MODEL_PATH")"
-    wget -q --show-progress \
-        https://huggingface.co/bartowski/Qwen2.5-3B-Instruct-GGUF/resolve/main/Qwen2.5-3B-Instruct-Q6_K.gguf \
-        -O "$LLAMA_MODEL_PATH"
+    wget -q --show-progress "$LLAMA_MODEL_URL" -O "$LLAMA_MODEL_PATH"
     echo "LLM model downloaded"
+fi
+
+# === Gemma mmproj (multimodal projector) ===
+if [ ! -f "$LLAMA_MMPROJ_PATH" ]; then
+    echo "mmproj not found: $LLAMA_MMPROJ_PATH"
+    echo "Downloading mmproj-google_gemma-4-E4B-it-f16.gguf ..."
+    mkdir -p "$(dirname "$LLAMA_MMPROJ_PATH")"
+    wget -q --show-progress "$LLAMA_MMPROJ_URL" -O "$LLAMA_MMPROJ_PATH"
+    echo "mmproj downloaded"
 fi
 
 # === SAM3 (vision) ===

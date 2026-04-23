@@ -4,7 +4,7 @@
 
 ## Что делает этот проект
 
-Пайплайн для детекции и сегментации объектов на изображениях. Принимает запросы на естественном языке (включая русский), парсит их через локальную LLM (Qwen2.5-1.5B через llama.cpp), затем запускает Grounding DINO для детекции объектов и SAM для сегментации. Предоставляет gRPC-сервис.
+Пайплайн для детекции и сегментации объектов на изображениях. Принимает запросы на естественном языке (включая русский), анализирует каждое изображение через локальную Gemma 4 Vision (GGUF через llama.cpp), применяет confidence и relevance-фильтры, затем запускает SAM3 для детекции + сегментации. Предоставляет gRPC-сервис.
 
 ## Команды
 
@@ -14,24 +14,26 @@
 python -m venv venv && source venv/Scripts/activate  # Windows: venv\Scripts\activate.bat
 pip install -r requirements.txt
 
-# Запуск сервиса (запускает LLM-сервер на :8081 + gRPC-сервер на :50051)
+# Запуск сервиса (запускает llama-server Gemma на :8000 + gRPC на :50051)
 python main.py
 
 # Тестирование gRPC-эндпоинта
 python test_client.py
 
-# Проверка путей до llama-server и модели
+# Проверка путей до llama-server, основной модели и mmproj
 python -m app.check_paths
 ```
 
 ### Docker
 ```bash
 docker build --no-cache -t ml_service .
-docker run -p 8081:8081 -p 50051:50051 --name ml_service_container ml_service
+docker run -p 8000:8000 -p 50051:50051 --name ml_service_container ml_service
 
 # Извлечь папку с результатами из контейнера (PowerShell)
 .\scripts\extract_volume.ps1
 ```
+
+При первом запуске `entrypoint.sh` скачает 2 файла Gemma (Q4_K_M + mmproj) и SAM3.
 
 ### Перегенерация gRPC-стабов (при изменении detector.proto)
 ```bash
@@ -44,20 +46,38 @@ python -m grpc_tools.protoc -I app/grps/protos \
 ## Архитектура
 
 ### Запуск сервиса (main.py)
-1. Проверяет пути до бинарника llama-server и GGUF-модели
-2. Запускает `LlamaServer` как подпроцесс (services/llama_manager.py) — опрашивает `/health` на порту 8081
+1. Проверяет пути до бинарника llama-server, GGUF-модели Gemma и mmproj
+2. Запускает `LlamaServer` как подпроцесс (services/llama_manager.py) — опрашивает `/health` на порту 8000
 3. Запускает gRPC-сервер как подпроцесс (`app.grps.server`)
+
+Команда запуска llama-server:
+```
+llama-server -m <model>.gguf --mmproj <mmproj>.gguf -c 8192 \
+  --host 127.0.0.1 --port 8000 -ngl 20 \
+  --batch-size 256 --ubatch-size 256 \
+  --no-kv-offload --parallel 1 --flash-attn on
+```
 
 ### Поток обработки запроса
 ```
-gRPC DetectionRequest
+gRPC DetectionRequest (query_id, dir_path, prompt)
   → DetectorService (app/grps/server.py)
   → ImageDetectionUseCase.execute() (app/scenaries/detect_image.py)
-  → подпроцесс detection_pipline.py (app/base_pipline/detection_pipline.py)
-      1. POST к Qwen2.5 (порт 8081) → извлечение названий классов из запроса
-      2. Grounding DINO → ограничивающие рамки для каждого класса
-      3. SAM → маски сегментации для каждой рамки
-      4. Сохранение результатов в volume/<query_id>/result/
+      │
+      │ ─── Gemma 4 Vision работает ───
+      │ для каждой картинки в source/:
+      │   1. POST /v1/chat/completions с картинкой → [{"label","confidence"}]
+      │   2. Confidence-фильтр (>=0.6)
+      │   3. Relevance-фильтр: текстовый вызов Gemma без картинки
+      │ → {image_name: [final_labels]}
+      │
+      │ ─── Остановка llama-server (освобождение VRAM) ───
+      │
+      │ ─── SAM3 subprocess ───
+      │ detection_pipline.py --labels-json → per-image детекция + сегментация
+      │
+      │ ─── Перезапуск llama-server ───
+      │
   → Чтение report.txt → возврат DetectionResponse
 ```
 
@@ -65,30 +85,36 @@ gRPC DetectionRequest
 | Файл | Роль |
 |------|------|
 | `main.py` | Точка входа, оркестратор |
-| `config/settings.py` | Вся конфигурация (LLMConfig, VisionConfig, GRPCConfig) |
-| `services/llama_manager.py` | Управление процессом llama-server |
+| `config/settings.py` | LLMConfig (Gemma), VisionConfig (SAM3), GRPCConfig |
+| `services/llama_manager.py` | Управление процессом llama-server (Gemma команда запуска) |
 | `app/grps/server.py` | Реализация gRPC DetectorService |
-| `app/scenaries/detect_image.py` | Обработчик сценария, запускает подпроцесс пайплайна |
-| `app/base_pipline/detection_pipline.py` | Полный ML-пайплайн (LLM → DINO → SAM) |
-| `app/base_pipline/sam_pipline.py` | Утилиты сегментации SAM |
-| `app/grps/protos/detector.proto` | Схема gRPC-сервиса и сообщений |
+| `app/base_pipline/gemma_client.py` | Gemma Vision + relevance filter (портировано из test_gemma.py) |
+| `app/scenaries/detect_image.py` | Per-image Gemma анализ → SAM3 subprocess |
+| `app/base_pipline/detection_pipline.py` | SAM3 subprocess (принимает `--labels-json`) |
+| `app/base_pipline/sam_pipline.py` | Утилиты SAM3 |
+| `app/grps/protos/detector.proto` | Схема gRPC |
+| `tests/test_gemma.py` | Экспериментальный скрипт — референс для промптов и фильтров |
 
 ### Конфигурация
-Настройки берутся из переменных окружения (файл `.env`). Ключевые переменные:
+Настройки берутся из переменных окружения (файл `.env`). Ключевые:
 
-- `LLAMA_SERVER_PATH` / `LLAMA_MODEL_PATH` — обязательны при запуске не в Docker
-- `RUNNING_IN_DOCKER=true` — переключает пути по умолчанию на Docker-пути
-- `VISION_DEVICE=cuda` — выбор CUDA-устройства
-- `DINO_BOX_THRESHOLD=0.25` / `DINO_TEXT_THRESHOLD=0.20` — пороги уверенности детекции
-- `GRPC_PORT=50051` / `LLAMA_PORT=8081`
+- `LLAMA_SERVER_PATH` — путь к бинарнику llama-server
+- `LLAMA_MODEL_PATH` — путь к `google_gemma-4-E4B-it-Q4_K_M.gguf`
+- `LLAMA_MMPROJ_PATH` — путь к `mmproj-google_gemma-4-E4B-it-f16.gguf` (обязательно!)
+- `LLAMA_PORT=8000` / `GRPC_PORT=50051`
+- `GEMMA_MIN_CONFIDENCE=0.6` — порог уверенности Gemma до SAM3
+- `GEMMA_USE_RELEVANCE_FILTER=true` — текстовый пост-фильтр релевантности
+- `RUNNING_IN_DOCKER=true` — переключает пути по умолчанию на Docker
+- `VISION_DEVICE=cuda` — устройство для SAM3
 
 Скопируй `.env.example` в `.env` и пропиши пути перед локальным запуском.
 
 ### Структура данных
-Входные изображения помещаются в `volume/<query_id>/source/`. Результаты записываются в `volume/<query_id>/result/`:
-- `report.txt` — сводка: количество объектов и ограничивающие рамки
-- `mask_*.png` — цветные маски сегментации
-- `detections_*.json` — детали детекции для каждого изображения
+Входные изображения: `volume/<query_id>/source/`. Результаты: `volume/<query_id>/result/`:
+- `gemma_analysis.json` — сырой вывод Gemma с confidence и фильтрами
+- `labels_per_image.json` — финальные метки per-image (передаётся в SAM3)
+- `report.txt` — сводка для gRPC-ответа
+- `<image>_<ext>/` — папка на каждое изображение: маски, overlay, боксы, JSON
 
 ### gRPC-контракт
 - Сервис: `Detector` → RPC `ImageDetection`
