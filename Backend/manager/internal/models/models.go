@@ -34,7 +34,11 @@ type Detection struct {
 	Confidence float64   `json:"confidence"`
 	BBox       []float64 `json:"bbox"`
 }
+
 type ReportEntry struct {
-	Filename   string      `json:"filename"`
-	Detections []Detection `json:"detections"`
+	Filename     string      `json:"filename"`
+	Detections   []Detection `json:"detections"`
+	ResultFolder string      `json:"result_folder,omitempty"`
+	BoxesURL     string      `json:"boxes_url,omitempty"`
+	OverlayURL   string      `json:"overlay_url,omitempty"`
 }

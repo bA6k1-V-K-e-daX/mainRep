@@ -11,7 +11,9 @@ import (
 	dbclientt "manager/internal/repository/database"
 	mlclient "manager/internal/repository/ml"
 	"net/http"
+	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -229,12 +231,19 @@ func (s *HTTPService) Detect(c *gin.Context) {
 		return
 	}
 
+	entries, err := s.loadQueryEntries(queryID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to prepare result entries", "details": err.Error()})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"query_id":          resp.QueryId,
 		"status":            "Success",
 		"instance_info":     resp.InstanceInfo,
 		"total":             resp.TotalObjects,
 		"result_dir":        fmt.Sprintf("/results/%s/result/", queryStrID),
+		"entries":           entries,
 		"uploaded_images":   mediaSummary.ImageFiles,
 		"uploaded_videos":   mediaSummary.VideoFiles,
 		"unsupported_files": mediaSummary.UnsupportedFiles,
@@ -258,12 +267,7 @@ func (s *HTTPService) History(c *gin.Context) {
 	}
 	var response []models.HistoryResponse
 	for _, queryID := range queries {
-		reportPath := filepath.Join(s.volumePath, strconv.FormatInt(int64(queryID), 10), "result", "report.txt")
-		if _, err := os.Stat(reportPath); os.IsNotExist(err) {
-			reportPath = filepath.Join(s.volumePath, strconv.FormatInt(int64(queryID), 10), "result", "detection_summary.txt")
-		}
-
-		entries, err := ParseReport(reportPath)
+		entries, err := s.loadQueryEntries(int64(queryID))
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Report not found or invalid format", "details": err.Error()})
 			return
@@ -363,4 +367,127 @@ func ParseReport(filePath string) ([]models.ReportEntry, error) {
 	}
 
 	return entries, nil
+}
+
+func (s *HTTPService) loadQueryEntries(queryID int64) ([]models.ReportEntry, error) {
+	resultDir := filepath.Join(s.volumePath, strconv.FormatInt(queryID, 10), "result")
+	reportPath := filepath.Join(resultDir, "report.txt")
+	if _, err := os.Stat(reportPath); os.IsNotExist(err) {
+		reportPath = filepath.Join(resultDir, "detection_summary.txt")
+	}
+
+	entries, err := ParseReport(reportPath)
+	if err != nil {
+		return nil, err
+	}
+
+	for index := range entries {
+		resultFolder, boxesFileName, overlayFileName := resolveResultArtifacts(resultDir, entries[index].Filename)
+		entries[index].ResultFolder = resultFolder
+		if resultFolder != "" && boxesFileName != "" {
+			entries[index].BoxesURL = buildResultAssetURL(queryID, resultFolder, boxesFileName)
+		}
+		if resultFolder != "" && overlayFileName != "" {
+			entries[index].OverlayURL = buildResultAssetURL(queryID, resultFolder, overlayFileName)
+		}
+	}
+
+	return entries, nil
+}
+
+func resolveResultArtifacts(resultDir string, filename string) (string, string, string) {
+	fileStem := strings.TrimSuffix(filename, filepath.Ext(filename))
+	fileExt := strings.TrimPrefix(strings.ToLower(filepath.Ext(filename)), ".")
+	if fileStem == "" {
+		return "", "", ""
+	}
+
+	boxesFileName := fileStem + "_boxes.png"
+	overlayFileName := fileStem + "_overlay.png"
+	candidateFolders := uniqueStrings([]string{
+		fileStem,
+		strings.TrimSuffix(filename, filepath.Ext(filename)),
+		buildLegacyFolderName(fileStem, fileExt),
+	})
+
+	for _, folderName := range candidateFolders {
+		if folderName == "" {
+			continue
+		}
+		boxesPath := filepath.Join(resultDir, folderName, boxesFileName)
+		overlayPath := filepath.Join(resultDir, folderName, overlayFileName)
+		if fileExists(boxesPath) || fileExists(overlayPath) {
+			return folderName, existingFileName(boxesPath), existingFileName(overlayPath)
+		}
+	}
+
+	entries, err := os.ReadDir(resultDir)
+	if err != nil {
+		return "", "", ""
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		folderName := entry.Name()
+		boxesPath := filepath.Join(resultDir, folderName, boxesFileName)
+		overlayPath := filepath.Join(resultDir, folderName, overlayFileName)
+		if fileExists(boxesPath) || fileExists(overlayPath) {
+			return folderName, existingFileName(boxesPath), existingFileName(overlayPath)
+		}
+	}
+
+	return "", "", ""
+}
+
+func buildLegacyFolderName(fileStem, fileExt string) string {
+	if fileStem == "" {
+		return ""
+	}
+	if fileExt == "" {
+		return fileStem
+	}
+	return fileStem + "_" + fileExt
+}
+
+func buildResultAssetURL(queryID int64, folderName, fileName string) string {
+	return path.Join(
+		"/results",
+		strconv.FormatInt(queryID, 10),
+		"result",
+		url.PathEscape(folderName),
+		url.PathEscape(fileName),
+	)
+}
+
+func existingFileName(filePath string) string {
+	if !fileExists(filePath) {
+		return ""
+	}
+	return filepath.Base(filePath)
+}
+
+func fileExists(filePath string) bool {
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return false
+	}
+	return !info.IsDir()
+}
+
+func uniqueStrings(values []string) []string {
+	unique := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		unique = append(unique, value)
+	}
+	return unique
 }
