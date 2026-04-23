@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import { useRef, useState } from "react";
 import ReactPlayer from "react-player";
 import { Play, Pause, RotateCcw, RotateCw, ChevronDown } from "lucide-react";
 import { useMedia } from "../context/MediaContext";
@@ -30,9 +30,9 @@ export default function VideoWorkspace() {
   };
 
   return (
-    <div className='flex-1 flex flex-col relative h-full'>
+    <div className='flex-1 flex flex-col relative h-full w-full'>
       {/* Плеер */}
-      <div className='flex-1 rounded-2xl bg-black overflow-hidden flex items-center justify-center relative shadow-lg'>
+      <div className='flex-1 rounded-xl md:rounded-2xl lg:rounded-2xl bg-black overflow-hidden flex items-center justify-center relative shadow-lg min-h-0'>
         <ReactPlayer
           ref={playerRef}
           url={media.url}
@@ -50,7 +50,7 @@ export default function VideoWorkspace() {
 
       {/* Таймлайн с ползунком, который двигается синхронно с видео */}
       <div
-        className='h-20 mt-4 bg-[#0a0710] rounded-xl flex overflow-hidden relative border border-white/5 cursor-pointer'
+        className='h-10 sm:h-12 md:h-14 lg:h-16 mt-2 sm:mt-3 md:mt-4 lg:mt-4 bg-[#0a0710] rounded-lg md:rounded-xl lg:rounded-xl flex overflow-hidden relative border border-white/5 cursor-pointer flex-shrink-0'
         onClick={(e) => {
           // Простая перемотка по клику на таймлайн
           const rect = e.currentTarget.getBoundingClientRect();
@@ -73,36 +73,36 @@ export default function VideoWorkspace() {
       </div>
 
       {/* Контролы плеера */}
-      <div className='flex items-center justify-between mt-4 bg-[#0a0710] rounded-full px-6 py-3 border border-white/5'>
-        <div className='flex items-center gap-6'>
-          <span className='text-sm text-gray-400 font-mono'>
+      <div className='flex flex-col sm:flex-row md:flex-row items-start sm:items-center md:items-center justify-between gap-2 sm:gap-3 md:gap-4 lg:gap-6 mt-2 sm:mt-3 md:mt-4 lg:mt-4 bg-[#0a0710] rounded-lg md:rounded-full px-3 sm:px-4 md:px-6 py-2 md:py-3 lg:py-3 border border-white/5 flex-shrink-0'>
+        <div className='flex items-center gap-2 md:gap-3 lg:gap-6 w-full sm:w-auto md:w-auto min-w-0'>
+          <span className='text-xs sm:text-sm md:text-sm lg:text-sm text-gray-400 font-mono shrink-0'>
             {formatTime(playedSeconds)} / {formatTime(duration)}
           </span>
-          <div className='flex items-center gap-2 px-3 py-1 text-sm text-gray-300 truncate max-w-50'>
+          <div className='flex items-center gap-1 md:gap-2 lg:gap-2 px-2 py-1 text-xs sm:text-sm md:text-sm lg:text-sm text-gray-300 truncate min-w-0 bg-white/5 sm:bg-white/5 md:bg-transparent rounded md:bg-transparent md:px-0'>
             {media.name}
           </div>
         </div>
-        <div className='flex items-center gap-4'>
+        <div className='flex items-center gap-1 sm:gap-2 md:gap-3 md:gap-4 lg:gap-4 shrink-0 w-full sm:w-auto md:w-auto justify-between sm:justify-end'>
           <button
             onClick={() => skip(-15)}
-            className='text-gray-400 hover:text-white transition'
+            className='text-gray-400 hover:text-white transition p-1'
           >
-            <RotateCcw className='w-5 h-5' />
+            <RotateCcw className='w-4 sm:w-4 md:w-5 lg:w-5 h-4 sm:h-4 md:h-5 lg:h-5' />
           </button>
           <button
             onClick={() => skip(15)}
-            className='text-gray-400 hover:text-white transition'
+            className='text-gray-400 hover:text-white transition p-1'
           >
-            <RotateCw className='w-5 h-5' />
+            <RotateCw className='w-4 sm:w-4 md:w-5 lg:w-5 h-4 sm:h-4 md:h-5 lg:h-5' />
           </button>
           <button
             onClick={() => setIsPlaying(!isPlaying)}
-            className='text-white hover:text-[#4C1DFF] transition ml-2'
+            className='text-white hover:text-[#4C1DFF] transition p-1'
           >
             {isPlaying ? (
-              <Pause className='w-6 h-6 fill-current' />
+              <Pause className='w-5 sm:w-5 md:w-6 lg:w-6 h-5 sm:h-5 md:h-6 lg:h-6 fill-current' />
             ) : (
-              <Play className='w-6 h-6 fill-current' />
+              <Play className='w-5 sm:w-5 md:w-6 lg:w-6 h-5 sm:h-5 md:h-6 lg:h-6 fill-current' />
             )}
           </button>
         </div>

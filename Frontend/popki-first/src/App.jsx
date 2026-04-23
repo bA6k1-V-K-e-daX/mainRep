@@ -6,7 +6,7 @@ import {
 } from "react-router-dom";
 import "./App.css";
 
-import { MediaProvider } from "./context/MediaContext";
+import { MediaProvider } from "./context/MediaProvider";
 import Workspace from "./Pages/Workspace";
 import GreetingsPage from "./Pages/GreetingsPage";
 import Auth from "./Pages/Auth";
@@ -25,7 +25,7 @@ function AppContent() {
   const showHeader = !hideHeaderRoutes.includes(location.pathname);
 
   return (
-    <div className='relative min-h-screen flex flex-col'>
+    <div className='relative min-h-screen w-full flex flex-col'>
       {/* Блок со свечениями (находится на заднем фоне) */}
       <div className='absolute inset-0 pointer-events-none z-0 overflow-hidden'>
         {glowSpots.map((spot) => (
@@ -48,14 +48,22 @@ function AppContent() {
       {showHeader && <Header />}
 
       {/* Основной контент */}
-      <main className='flex-1 flex flex-col relative z-10'>
-        <Routes>
-          <Route path='/' element={<GreetingsPage />} />
-          <Route path='/signin' element={<Auth />} />
-          <Route path='/registr' element={<Registration />} />
-          <Route path='/workspace' element={<Workspace />} />
-          <Route path='*' element={<div>404: Страница не найдена</div>} />
-        </Routes>
+      <main className='relative z-10 flex flex-1 flex-col'>
+        <div
+          className={`w-full flex-1 ${
+            showHeader
+              ? "mx-auto w-full max-w-screen-2xl px-4 py-4 md:px-6 md:py-6 lg:px-8 lg:py-8 xl:px-10 2xl:px-12"
+              : ""
+          }`}
+        >
+          <Routes>
+            <Route path='/' element={<GreetingsPage />} />
+            <Route path='/signin' element={<Auth />} />
+            <Route path='/registr' element={<Registration />} />
+            <Route path='/workspace' element={<Workspace />} />
+            <Route path='*' element={<div>404: Страница не найдена</div>} />
+          </Routes>
+        </div>
       </main>
     </div>
   );

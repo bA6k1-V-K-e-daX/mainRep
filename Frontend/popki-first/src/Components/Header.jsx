@@ -3,12 +3,12 @@ import { Link } from "react-router-dom";
 
 export default function Header() {
   return (
-    <div className='flex justify-center'>
-      <div className='w-123.75 h-13 flex items-center justify-between my-8.25 border border-[#4500F9] rounded-2xl px-3.75 py-2.75'>
+    <div className='w-full'>
+      <div className='mx-auto my-6 flex h-14 w-[95%] max-w-screen-2xl items-center justify-between rounded-2xl border border-[#4500F9] px-4 py-2 md:my-8 md:px-6 lg:px-8 lg:w-[30%]'>
         <div className='flex items-center'>
           <Link to='/' className='flex items-center gap-2'>
             <img src='peeky-mini-logo.png' alt='' className='w-10 h-10' />
-            <p className='m-0 text-white text-2xl font-extralight tracking-normal'>
+            <p className='m-0 text-white text-xl font-extralight tracking-normal lg:text-2xl'>
               Peeky
             </p>
           </Link>
