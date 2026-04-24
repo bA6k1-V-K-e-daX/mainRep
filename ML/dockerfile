@@ -17,7 +17,7 @@ ENV CUDA_HOME=/usr/local/cuda
 
 # === СБОРКА llama.cpp С CUDA ===
 RUN mkdir -p ${LLAMA_BIN} && \
-    git clone --depth 1 --branch b5400 https://github.com/ggerganov/llama.cpp /tmp/llama.cpp && \
+    git clone --depth 1 --branch b8902 https://github.com/ggml-org/llama.cpp /tmp/llama.cpp && \
     cd /tmp/llama.cpp && \
     cmake -B build \
         -DGGML_CUDA=ON \
@@ -27,7 +27,8 @@ RUN mkdir -p ${LLAMA_BIN} && \
         -DCMAKE_EXE_LINKER_FLAGS="-Wl,--allow-shlib-undefined" && \
     cmake --build build --config Release --target llama-server -j$(nproc) && \
     cp build/bin/llama-server ${LLAMA_BIN}/ && \
-    cp build/bin/lib*.so ${LLAMA_BIN}/ 2>/dev/null || true && \
+    find build -type f \( -name "*.so" -o -name "*.so.*" \) -exec cp -P {} ${LLAMA_BIN}/ \; && \
+    find build -type l \( -name "*.so" -o -name "*.so.*" \) -exec cp -P {} ${LLAMA_BIN}/ \; && \
     chmod +x ${LLAMA_BIN}/llama-server && \
     rm -rf /tmp/llama.cpp /build/build
 
@@ -56,6 +57,9 @@ RUN mkdir -p ${MODEL_DIR}
 # === Python зависимости ===
 COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
+
+# === Папка моделей — заполняется через volume при первом запуске ===
+RUN mkdir -p ${MODEL_DIR}
 
 # === Код приложения ===
 COPY app/ ./app/

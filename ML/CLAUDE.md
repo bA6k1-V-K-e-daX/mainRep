@@ -27,7 +27,7 @@ python -m app.check_paths
 ### Docker
 ```bash
 docker build --no-cache -t ml_service .
-docker run -p 8000:8000 -p 50051:50051 --name ml_service_container ml_service
+docker run --gpus all -p 8000:8000 -p 50051:50051 -v ml_models:/app/models --name ml_service_container ml_service
 
 # Извлечь папку с результатами из контейнера (PowerShell)
 .\scripts\extract_volume.ps1

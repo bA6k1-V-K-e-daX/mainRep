@@ -14,7 +14,6 @@ services:
     environment:
       - RUNNING_IN_DOCKER=true
       - LLAMA_SERVER_PATH=/app/llama-bin/llama-server
-      - LLAMA_MODEL_PATH=/app/models/Qwen2.5-3B-Instruct-Q6_K.gguf
       - LLM_SERVICE_URL=http://127.0.0.1:8081
       - LLAMA_NGL=99
       - LLAMA_CONTEXT=2048

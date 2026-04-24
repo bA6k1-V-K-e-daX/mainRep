@@ -24,7 +24,11 @@ from typing import Dict, List, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from config.settings import VisionConfig
-from app.base_pipline.gemma_client import extract_labels_for_image
+from app.base_pipline.gemma_client import (
+    extract_labels_for_image,
+    extract_user_labels_from_prompt,
+    find_missing_user_labels,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,17 +80,28 @@ def _analyze_images_with_gemma(
     Возвращает mapping {image_name: [labels]}.
     Сохраняет трассу в output_dir/gemma_analysis.json.
     """
+    user_labels = extract_user_labels_from_prompt(query)
+    logger.info(f"User labels from prompt: {user_labels}")
+
     labels_per_image: Dict[str, List[str]] = {}
     trace: List[dict] = []
 
     for idx, img_path in enumerate(images, 1):
         logger.info(f"[Gemma {idx}/{len(images)}] {img_path.name}")
         result = extract_labels_for_image(img_path, query)
+        gemma_labels = list(result["labels"])
 
-        labels_per_image[img_path.name] = result["labels"]
+        missing = find_missing_user_labels(gemma_labels, user_labels) if gemma_labels else []
+        gemma_set = set(gemma_labels)
+        added_from_user = [l for l in missing if l not in gemma_set]
+        final_labels = gemma_labels + added_from_user
+
+        labels_per_image[img_path.name] = final_labels
         trace.append({
             "image": img_path.name,
-            "labels": result["labels"],
+            "labels": final_labels,
+            "gemma_labels": gemma_labels,
+            "added_from_user": added_from_user,
             "labels_raw": result["labels_raw"],
             "filtered_by_confidence": result["filtered_by_confidence"],
             "filtered_by_relevance": result["filtered_by_relevance"],
@@ -94,14 +109,18 @@ def _analyze_images_with_gemma(
             "error": result["error"],
         })
 
-        if result["labels"]:
-            logger.info(f"  → {result['labels']}")
+        if final_labels:
+            logger.info(f"  → {final_labels} (gemma={gemma_labels}, added={added_from_user})")
         else:
             logger.info("  → [] (ничего релевантного)")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "gemma_analysis.json").write_text(
-        json.dumps({"query": query, "per_image": trace}, indent=2, ensure_ascii=False),
+        json.dumps(
+            {"query": query, "user_labels": user_labels, "per_image": trace},
+            indent=2,
+            ensure_ascii=False,
+        ),
         encoding="utf-8",
     )
     return labels_per_image

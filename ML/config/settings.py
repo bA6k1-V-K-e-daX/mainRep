@@ -93,6 +93,10 @@ class LLMConfig:
     MIN_GEMMA_CONFIDENCE = float(os.getenv("GEMMA_MIN_CONFIDENCE", "0.6"))
     USE_RELEVANCE_FILTER = os.getenv("GEMMA_USE_RELEVANCE_FILTER", "true").lower() == "true"
 
+    # === Препроцессинг изображений перед Gemma Vision ===
+    MAX_IMAGE_SIZE = int(os.getenv("GEMMA_MAX_IMAGE_SIZE", "2688"))
+    JPEG_QUALITY = int(os.getenv("GEMMA_JPEG_QUALITY", "95"))
+
     @classmethod
     def get_base_url(cls) -> str:
         return f"http://{cls.HOST}:{cls.PORT}"
