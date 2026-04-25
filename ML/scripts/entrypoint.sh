@@ -4,38 +4,43 @@ set -e
 
 echo "AI Pipeline Container Starting..."
 
-# === LLM модель (Qwen2.5 GGUF) ===
+# --- Скачивание моделей (только если volume пустой при первом запуске) ---
 if [ ! -f "$LLAMA_MODEL_PATH" ]; then
-    echo "LLM model not found: $LLAMA_MODEL_PATH"
-    echo "Downloading Qwen2.5-3B-Instruct-Q6_K.gguf ..."
-    mkdir -p "$(dirname "$LLAMA_MODEL_PATH")"
-    wget -q --show-progress \
-        https://huggingface.co/bartowski/Qwen2.5-3B-Instruct-GGUF/resolve/main/Qwen2.5-3B-Instruct-Q6_K.gguf \
-        -O "$LLAMA_MODEL_PATH"
-    echo "LLM model downloaded"
+    echo "Downloading Gemma GGUF model (first run)..."
+    wget --progress=dot:giga \
+        -O "$LLAMA_MODEL_PATH" \
+        https://huggingface.co/bartowski/google_gemma-4-E4B-it-GGUF/resolve/main/google_gemma-4-E4B-it-Q4_K_M.gguf
 fi
 
-# === SAM3 (vision) ===
+if [ ! -f "$LLAMA_MMPROJ_PATH" ]; then
+    echo "Downloading mmproj (first run)..."
+    wget --progress=dot:giga \
+        -O "$LLAMA_MMPROJ_PATH" \
+        https://huggingface.co/bartowski/google_gemma-4-E4B-it-GGUF/resolve/main/mmproj-google_gemma-4-E4B-it-f16.gguf
+fi
+
 SAM3_DIR="${SAM3_CHECKPOINT_PATH:-/app/models/sam3}"
 if [ ! -f "$SAM3_DIR/model.safetensors" ]; then
-    echo "SAM3 not found at: $SAM3_DIR"
-    echo "Downloading SAM3 from ModelScope ..."
-    mkdir -p "$SAM3_DIR"
-    python3 - <<PYEOF
-import os, sys
-try:
-    from modelscope import snapshot_download
-    sam3_dir = os.environ.get("SAM3_CHECKPOINT_PATH", "/app/models/sam3")
-    snapshot_download("facebook/sam3", local_dir=sam3_dir)
-    print(f"SAM3 downloaded to {sam3_dir}")
-except Exception as e:
-    print(f"ERROR: Could not download SAM3: {e}", file=sys.stderr)
-    sys.exit(1)
-PYEOF
-    echo "SAM3 downloaded"
+    echo "Downloading SAM3 (first run)..."
+    python3 -c "from modelscope import snapshot_download; snapshot_download('facebook/sam3', local_dir='$SAM3_DIR')"
 fi
 
-# === llama-server ===
+# --- Валидация ---
+if [ ! -f "$LLAMA_MODEL_PATH" ]; then
+    echo "ERROR: LLM model missing in volume: $LLAMA_MODEL_PATH"
+    exit 1
+fi
+
+if [ ! -f "$LLAMA_MMPROJ_PATH" ]; then
+    echo "ERROR: mmproj missing in volume: $LLAMA_MMPROJ_PATH"
+    exit 1
+fi
+
+if [ ! -f "$SAM3_DIR/model.safetensors" ]; then
+    echo "ERROR: SAM3 weights missing in volume: $SAM3_DIR"
+    exit 1
+fi
+
 if [ ! -x "$LLAMA_SERVER_PATH" ]; then
     echo "ERROR: llama-server not found or not executable: $LLAMA_SERVER_PATH"
     exit 1
