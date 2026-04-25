@@ -17,7 +17,7 @@ ENV CUDA_HOME=/usr/local/cuda
 
 # === СБОРКА llama.cpp С CUDA ===
 RUN mkdir -p ${LLAMA_BIN} && \
-    git clone --depth 1 --branch b8902 https://github.com/ggml-org/llama.cpp /tmp/llama.cpp && \
+    git clone --depth 1 --branch b8882 https://github.com/ggml-org/llama.cpp /tmp/llama.cpp && \
     cd /tmp/llama.cpp && \
     cmake -B build \
         -DGGML_CUDA=ON \

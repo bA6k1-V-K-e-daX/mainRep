@@ -92,6 +92,7 @@ class LLMConfig:
     # === Фильтрация меток от Gemma (как в test_gemma) ===
     MIN_GEMMA_CONFIDENCE = float(os.getenv("GEMMA_MIN_CONFIDENCE", "0.6"))
     USE_RELEVANCE_FILTER = os.getenv("GEMMA_USE_RELEVANCE_FILTER", "true").lower() == "true"
+    RELEVANCE_THRESHOLD = float(os.getenv("GEMMA_RELEVANCE_THRESHOLD", "0.7"))
 
     # === Препроцессинг изображений перед Gemma Vision ===
     MAX_IMAGE_SIZE = int(os.getenv("GEMMA_MAX_IMAGE_SIZE", "2688"))

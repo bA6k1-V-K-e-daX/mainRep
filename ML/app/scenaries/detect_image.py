@@ -88,10 +88,22 @@ def _analyze_images_with_gemma(
 
     for idx, img_path in enumerate(images, 1):
         logger.info(f"[Gemma {idx}/{len(images)}] {img_path.name}")
-        result = extract_labels_for_image(img_path, query)
+        result = extract_labels_for_image(img_path, query, user_labels=user_labels)
         gemma_labels = list(result["labels"])
+        had_detections = bool(result["labels_raw"])
+        covered_user = set(result.get("covered_user_labels", []))
 
-        missing = find_missing_user_labels(gemma_labels, user_labels) if gemma_labels else []
+        if gemma_labels:
+            # Gemma нашла релевантные метки — добавляем только user_labels,
+            # которые НЕ покрыты детекциями (напр. dog покрывает animal → animal не добавляем)
+            missing = [l for l in user_labels if l not in covered_user]
+        elif had_detections:
+            # Gemma что-то видела, но всё отсеяно (hypernym / unrelated) →
+            # fallback: добавляем ВСЕ user_labels
+            missing = list(user_labels)
+        else:
+            # Gemma реально ничего не детектила → не бомбим SAM3 лишним
+            missing = []
         gemma_set = set(gemma_labels)
         added_from_user = [l for l in missing if l not in gemma_set]
         final_labels = gemma_labels + added_from_user
@@ -102,6 +114,7 @@ def _analyze_images_with_gemma(
             "labels": final_labels,
             "gemma_labels": gemma_labels,
             "added_from_user": added_from_user,
+            "covered_user_labels": sorted(covered_user),
             "labels_raw": result["labels_raw"],
             "filtered_by_confidence": result["filtered_by_confidence"],
             "filtered_by_relevance": result["filtered_by_relevance"],
@@ -210,6 +223,10 @@ class ImageDetectionUseCase:
             cmd += ["--original-query", original_query]
 
         completed = subprocess.run(cmd, capture_output=True, text=True)
+        if completed.stdout:
+            logger.info(f"SAM pipeline stdout:\n{completed.stdout}")
+        if completed.stderr:
+            logger.warning(f"SAM pipeline stderr:\n{completed.stderr}")
         if completed.returncode != 0:
             raise RuntimeError(
                 "SAM pipeline failed.\n"

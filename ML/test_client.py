@@ -49,7 +49,7 @@ def main():
     # Параметры запроса
     query_id = 3
     dir_path = "volume" # ← замените на реальный путь к папке или файлу!
-    prompt = "Пропеллер, физюляж, рама, крыло"
+    prompt = "Найди весь транспорт и колёса"
 
     # Формируем запрос
     request = detector_pb2.DetectionRequest(

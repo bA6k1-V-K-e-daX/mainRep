@@ -27,70 +27,31 @@ logger = logging.getLogger(__name__)
 # ПРОМПТЫ (идентичны test_gemma.py)
 # ============================================================
 
-SYSTEM_PROMPT = """You are a visual object detector. Your entire output MUST be a single JSON array and NOTHING else.
+SYSTEM_PROMPT = """You are a visual object detector. Output ONLY a JSON array, nothing else.
 
-OUTPUT FORMAT (strict):
-- ONLY a JSON array like [{"label": "car", "confidence": 0.9}, {"label": "dog", "confidence": 0.7}] or []
-- Each element MUST be an object: {"label": "<lowercase noun>", "confidence": <float 0.0–1.0>}
-- confidence = how certain the object is present in the image.
-- Omit any object where confidence < 0.5 — do not include it at all.
-- NO explanations, NO reasoning, NO markdown fences, NO comments, NO prose before or after.
+FORMAT: [{"label": "car", "confidence": 0.9}] or []
+- confidence 0.0–1.0; omit entry if < 0.5
+- labels: lowercase English singular nouns; deduplicate (5 cars → "car" once)
+- NO text, NO markdown, NO reasoning outside the array
 
-HOW TO DECIDE (do this mentally, do NOT write it down):
-1. PARSE THE REQUEST: Extract ALL specific nouns/objects mentioned in the user's request. Translate them into English if they are in another language. Create a mental "Target List" of these labels.
-2. SCAN THE IMAGE: Identify ALL distinct, visible objects in the image.
-3. MERGE AND VERIFY:
-   - For each item in the "Target List": Check if it is visibly present in the image.
-     - If YES: Add it to the output with high confidence (e.g., 0.8–0.95).
-     - If NO: Do NOT include it. (Do not hallucinate objects just because they were requested).
-   - For other prominent objects found in the image (NOT in the "Target List"):
-     - If they are clearly visible and significant, add them to the output with appropriate confidence.
-4. FINAL FILTER: Remove duplicates. Ensure all labels are lowercase English singular nouns. Remove any entry with confidence < 0.5.
+PROCESS (mental only, do NOT write):
+1. Parse user's request — extract target object nouns (translate non-English to English)
+2. Check each target: is it visually present in the image? Include only if YES
+3. Do NOT include objects not matching the request, even if visible
 
-CRITICAL ANTI-HALLUCINATION RULES:
-- NEVER output a label just because the user asked for it. It MUST be visible in the image.
-- If the user asks for "wheels" but only a cat is visible -> Output [].
-- If the user asks for "cat and dog", and only a cat is visible -> Output [{"label": "cat", "confidence": 0.9}]. Do NOT output "dog".
-- If the user asks for "cat", but you also see a prominent "dog" -> Output BOTH [{"label": "cat", ...}, {"label": "dog", ...}]. The model should detect relevant requested items AND other obvious objects.
-- "only cars" / "только машины": STRICT MODE. Ignore ANY object that is not a car. Bus, truck, bicycle are NOT cars. Output [] if no cars are present.
-- Cartoons/drawings count (cartoon cat = "cat"), but do not invent objects that are not drawn.
-- "wheels" / "колёса": only return ["wheel"] if a wheel is LARGE AND CLEARLY VISIBLE as the main subject.
+STRICT MODE ("only X" / "только X"): output ONLY that category, nothing else
+ANTI-HALLUCINATION: NEVER output a label you don't visually see. Request for "wheels" on a cat image → []"""
 
-LABEL STYLE:
-- Specific English nouns, lowercase. "tram" not "train car", "sedan"→"car", "puppy"→"dog".
-- Broad requests get specific labels: "transport" + you see a bus → ["bus"], not ["transport"].
-- Deduplicate: 5 cars → ["car"] once.
-
-EXAMPLES (request | what is in the image | correct output):
-- "find animals"           | a horse with a rider                     | [{"label": "horse", "confidence": 0.95}]
-- "find animals"           | a parked car, no animals                 | []
-- "only cars" / "машины"   | a bus                                    | []
-- "only cars" / "машины"   | a sedan and an SUV                       | [{"label": "car", "confidence": 0.95}]
-- "find all vehicles"      | a cat close-up                           | []
-- "find wheels"            | a cat lying on the floor                 | []
-- "find wheels"            | a bicycle close-up, wheel fills frame    | [{"label": "wheel", "confidence": 0.9}]
-- "find furniture"         | a woman reading on a sofa                | [{"label": "sofa", "confidence": 0.95}]
-- "cat and dog"            | only a cat is visible                    | [{"label": "cat", "confidence": 0.9}]
-- "cat"                    | a cat and a prominent dog                | [{"label": "cat", "confidence": 0.9}, {"label": "dog", "confidence": 0.85}]
-- "машина и дерево"        | a car next to a tree                     | [{"label": "car", "confidence": 0.9}, {"label": "tree", "confidence": 0.9}]
-- "машина и дерево"        | only a car is visible                    | [{"label": "car", "confidence": 0.9}]
-
-Your entire response is the JSON array. Nothing else. Example of valid output:
-[{"label": "car", "confidence": 0.92}, {"label": "bicycle", "confidence": 0.61}]"""
-
-USER_PROMPT_TEMPLATE = """User's request: "{prompt}"
-
-Step A (mentally): identify what is ACTUALLY in this image.
-Step B (mentally): keep only items that match the request above, assign confidence 0.0–1.0.
-Step C (output): JSON array of {{"label": "...", "confidence": ...}} objects, or [] if none match.
-
-Output ONLY the JSON array. No reasoning text."""
+USER_PROMPT_TEMPLATE = 'Request: "{prompt}"\nOutput JSON array of objects that are BOTH visible in this image AND relevant to the request.'
 
 RELEVANCE_FILTER_SYSTEM = (
-    "You are a strict relevance filter. "
+    "You are a relevance scorer. "
     "Given a user request and a list of detected objects, "
-    "return ONLY the objects that belong to the category the user asked for. "
-    "Output a JSON array of strings like [\"car\", \"bus\"], or [] if none match. "
+    "score each object's relevance to the request from 0.0 to 1.0. "
+    "Output ONLY a JSON array like [{\"label\": \"car\", \"relevance\": 0.95}]. "
+    "1.0 = exact match or direct member of requested category. "
+    "0.5 = loosely related. "
+    "0.0 = unrelated. "
     "Nothing else — no explanations, no markdown, no extra text."
 )
 
@@ -111,6 +72,23 @@ EXAMPLES:
 - "самолёт"                         -> ["airplane"]
 
 Your entire response is the JSON array. Nothing else."""
+
+STRICT_FILTER_SYSTEM = """You map detected objects to an allowed label list.
+
+For each detected object, list which allowed labels it covers:
+- Exact match: "car" covers "car"
+- Synonym: "plane" covers "airplane"
+- Hyponym (subcategory): "sedan" covers "car", "dog" covers "animal", "cat" covers "animal"
+
+DROP the detected object (empty covers list) if:
+- It is a HYPERNYM (parent category) of the allowed labels: "airplane" does NOT cover "wing" (wing is a PART of airplane). "vehicle" does NOT cover "car".
+- It is unrelated: "drone" does NOT cover "car".
+- It is a sibling: "bus" does NOT cover "car".
+
+Output ONLY a JSON array like:
+[{"detected": "cat", "covers": ["animal"]}, {"detected": "dog", "covers": ["animal"]}]
+Include every detected object (with empty "covers" if it matches nothing).
+No explanations, no markdown, nothing else."""
 
 MISSING_LABELS_SYSTEM = """You decide which user-requested labels are NOT already covered by the detected list.
 
@@ -217,9 +195,10 @@ def analyze_single_image(
                 ],
             },
         ],
-        "max_tokens": max_tokens,
+        "max_tokens": max(max_tokens, 512),
         "temperature": temperature,
         "stream": False,
+        "chat_template_kwargs": {"enable_thinking": False},
     }
 
     try:
@@ -250,15 +229,18 @@ def filter_labels_by_relevance(
     query: str,
     labels: List[str],
     timeout: int = 60,
+    threshold: Optional[float] = None,
 ) -> List[str]:
-    """Текстовый вызов Gemma: оставляет только метки, релевантные запросу."""
+    """Текстовый вызов Gemma: оставляет только метки с relevance >= threshold."""
     if not labels:
         return []
+    if threshold is None:
+        threshold = LLMConfig.RELEVANCE_THRESHOLD
 
     user_msg = (
         f'User request: "{query}"\n'
         f'Detected objects: {json.dumps(labels, ensure_ascii=False)}\n'
-        f'Relevant objects (JSON array):'
+        f'Score each object (JSON array):'
     )
 
     payload = {
@@ -266,9 +248,10 @@ def filter_labels_by_relevance(
             {"role": "system", "content": RELEVANCE_FILTER_SYSTEM},
             {"role": "user", "content": user_msg},
         ],
-        "max_tokens": 128,
+        "max_tokens": 512,
         "temperature": 0.0,
         "stream": False,
+        "chat_template_kwargs": {"enable_thinking": False},
     }
 
     try:
@@ -296,13 +279,21 @@ def filter_labels_by_relevance(
         filtered = []
         for item in data:
             if isinstance(item, str):
+                # Старый формат (строка без score) — принимаем если в original_set
                 lbl = item.lower().strip()
+                if lbl and lbl in original_set:
+                    filtered.append(lbl)
             elif isinstance(item, dict):
                 lbl = str(item.get("label", item.get("class", item.get("name", "")))).lower().strip()
-            else:
-                continue
-            if lbl and lbl in original_set:
-                filtered.append(lbl)
+                try:
+                    score = float(item.get("relevance", item.get("score", item.get("confidence", 1.0))))
+                except (TypeError, ValueError):
+                    score = 1.0
+                if lbl and lbl in original_set and score >= threshold:
+                    filtered.append(lbl)
+                    logger.debug(f"Relevance filter: '{lbl}' score={score:.2f} >= {threshold} → keep")
+                elif lbl and lbl in original_set:
+                    logger.debug(f"Relevance filter: '{lbl}' score={score:.2f} < {threshold} → drop")
         return filtered
 
     return []
@@ -362,9 +353,10 @@ def extract_user_labels_from_prompt(prompt: str, timeout: int = 60) -> List[str]
             {"role": "system", "content": EXTRACT_USER_LABELS_SYSTEM},
             {"role": "user", "content": user_msg},
         ],
-        "max_tokens": 128,
+        "max_tokens": 512,
         "temperature": 0.0,
         "stream": False,
+        "chat_template_kwargs": {"enable_thinking": False},
     }
 
     try:
@@ -385,6 +377,118 @@ def extract_user_labels_from_prompt(prompt: str, timeout: int = 60) -> List[str]
         logger.warning("Could not parse user-labels JSON; using comma-split fallback")
         return _fallback_split_prompt(prompt)
     return parsed
+
+
+def _extract_outer_array(raw: str) -> Optional[str]:
+    """Находит первый top-level JSON array [...] в raw через bracket counting.
+    Нужно когда массив содержит вложенные массивы (re.findall матчит их первыми)."""
+    start = (raw or "").find('[')
+    if start == -1:
+        return None
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(raw)):
+        c = raw[i]
+        if esc:
+            esc = False
+            continue
+        if c == '\\':
+            esc = True
+            continue
+        if c == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if c == '[':
+            depth += 1
+        elif c == ']':
+            depth -= 1
+            if depth == 0:
+                return raw[start:i+1]
+    return None
+
+
+def filter_and_map_detections(
+    detected: List[str],
+    user_labels: List[str],
+    timeout: int = 60,
+) -> Dict[str, List[str]]:
+    """
+    За один Gemma-вызов:
+      - Строго фильтрует detected (отсеивает hypernym-ы и unrelated)
+      - Возвращает mapping {detected_label: [user_labels, которые он покрывает]}
+
+    Пример: detected=["cat","dog"], user_labels=["animal"]
+            → {"cat": ["animal"], "dog": ["animal"]}
+    Пример: detected=["airplane"], user_labels=["wing","propeller"]
+            → {} (airplane — hypernym, ничего не покрывает)
+    """
+    if not detected:
+        return {}
+    if not user_labels:
+        return {d: [] for d in detected}
+
+    user_msg = (
+        f"Allowed labels: {json.dumps(list(user_labels), ensure_ascii=False)}\n"
+        f"Detected objects: {json.dumps(list(detected), ensure_ascii=False)}\n"
+        f"Mapping (JSON array):"
+    )
+    payload = {
+        "messages": [
+            {"role": "system", "content": STRICT_FILTER_SYSTEM},
+            {"role": "user", "content": user_msg},
+        ],
+        "max_tokens": 512,
+        "temperature": 0.0,
+        "stream": False,
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
+
+    try:
+        response = requests.post(
+            LLMConfig.get_chat_url(),
+            json=payload,
+            timeout=timeout,
+            headers={"Content-Type": "application/json"},
+        )
+        response.raise_for_status()
+        raw = response.json()["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        logger.warning(f"Strict filter failed ({e}); keeping all detected")
+        return {d: [] for d in detected}
+
+    # Парсим внешний массив [{"detected": "...", "covers": [...]}] через bracket counting
+    detected_set = set(detected)
+    user_set = set(user_labels)
+    outer = _extract_outer_array(raw)
+    if outer is None:
+        logger.warning("Could not find outer JSON array in strict-filter response; keeping all detected")
+        return {d: [] for d in detected}
+    try:
+        data = json.loads(outer)
+    except json.JSONDecodeError as e:
+        logger.warning(f"Strict-filter JSON parse error ({e}); keeping all detected")
+        return {d: [] for d in detected}
+    if not isinstance(data, list):
+        return {d: [] for d in detected}
+
+    result: Dict[str, List[str]] = {}
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        det = str(item.get("detected", "")).lower().strip()
+        if det not in detected_set:
+            continue
+        covers_raw = item.get("covers", [])
+        if not isinstance(covers_raw, list):
+            covers_raw = []
+        covers = [str(c).lower().strip() for c in covers_raw]
+        covers = [c for c in covers if c in user_set]
+        if covers:
+            result[det] = covers
+    return result
 
 
 def find_missing_user_labels(
@@ -411,9 +515,10 @@ def find_missing_user_labels(
             {"role": "system", "content": MISSING_LABELS_SYSTEM},
             {"role": "user", "content": user_msg},
         ],
-        "max_tokens": 128,
+        "max_tokens": 512,
         "temperature": 0.0,
         "stream": False,
+        "chat_template_kwargs": {"enable_thinking": False},
     }
 
     try:
@@ -448,6 +553,7 @@ def extract_labels_for_image(
     query: str,
     min_confidence: Optional[float] = None,
     use_relevance_filter: Optional[bool] = None,
+    user_labels: Optional[List[str]] = None,
 ) -> Dict:
     """
     Полный цикл для одного изображения:
@@ -476,6 +582,7 @@ def extract_labels_for_image(
             "labels_raw": [],
             "filtered_by_confidence": [],
             "filtered_by_relevance": [],
+            "covered_user_labels": [],
             "status": "error",
             "error": f"Cannot open image: {e}",
         }
@@ -487,6 +594,7 @@ def extract_labels_for_image(
             "labels_raw": [],
             "filtered_by_confidence": [],
             "filtered_by_relevance": [],
+            "covered_user_labels": [],
             "status": "error",
             "error": result.get("error"),
         }
@@ -497,17 +605,31 @@ def extract_labels_for_image(
 
     label_strings = [i["label"] for i in passed_conf]
     dropped_rel: List[str] = []
+    covered_user_labels: List[str] = []
     if use_relevance_filter and label_strings:
-        relevant = filter_labels_by_relevance(query, label_strings)
-        relevant_set = set(relevant)
-        dropped_rel = [l for l in label_strings if l not in relevant_set]
-        label_strings = relevant
+        if user_labels:
+            # Строгая фильтрация + mapping: {detected: [covered user_labels]}
+            mapping = filter_and_map_detections(label_strings, user_labels)
+            kept = list(mapping.keys())
+            dropped_rel = [l for l in label_strings if l not in mapping]
+            # Union покрытых user_labels (для fallback в detect_image.py)
+            covered_set: set = set()
+            for covers in mapping.values():
+                covered_set.update(covers)
+            covered_user_labels = [l for l in user_labels if l in covered_set]
+            label_strings = kept
+        else:
+            relevant = filter_labels_by_relevance(query, label_strings)
+            relevant_set = set(relevant)
+            dropped_rel = [l for l in label_strings if l not in relevant_set]
+            label_strings = relevant
 
     return {
         "labels": label_strings,
         "labels_raw": labels_raw,
         "filtered_by_confidence": dropped_conf,
         "filtered_by_relevance": dropped_rel,
+        "covered_user_labels": covered_user_labels,
         "status": "success",
         "error": None,
     }

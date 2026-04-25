@@ -15,8 +15,8 @@ services:
       - RUNNING_IN_DOCKER=true
       - LLAMA_SERVER_PATH=/app/llama-bin/llama-server
       - LLM_SERVICE_URL=http://127.0.0.1:8081
-      - LLAMA_NGL=99
-      - LLAMA_CONTEXT=2048
+      - LLAMA_NGL=20
+      - LLAMA_CONTEXT=8192
       - LLAMA_THREADS=4
       - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
       - CUDA_VISIBLE_DEVICES=0
