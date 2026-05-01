@@ -26,34 +26,37 @@ export const MediaProvider = ({ children }) => {
   const [activeChatId, setActiveChatId] = useState(
     INITIAL_CHATS[0]?.id ?? null,
   );
-  const [media, setMedia] = useState(null);
+  const [media, setMedia] = useState([]);
   const [results, setResults] = useState([]);
   const [timelineFrames, setTimelineFrames] = useState([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [error, setError] = useState("");
 
-  const uploadMedia = useCallback((file) => {
-    if (!file) return;
+  const uploadMedia = useCallback((files) => {
+    if (!files || files.length === 0) return;
 
-    setMedia((prevMedia) => {
-      if (prevMedia?.url) {
-        URL.revokeObjectURL(prevMedia.url);
-      }
-      return buildMediaPayload(file);
-    });
-
+    const newFiles = Array.from(files).map(buildMediaPayload);
+    setMedia((prev) => [...prev, ...newFiles]);
     setResults([]);
     setTimelineFrames([]);
     setError("");
   }, []);
 
+  const removeMedia = useCallback((id) => {
+    setMedia((prev) => {
+      const toRemove = prev.find((m) => m.id === id);
+      if (toRemove?.url) URL.revokeObjectURL(toRemove.url);
+      return prev.filter((m) => m.id !== id);
+    });
+  }, []);
+
   const resetWorkspace = useCallback(() => {
-    setMedia((prevMedia) => {
-      if (prevMedia?.url) {
-        URL.revokeObjectURL(prevMedia.url);
-      }
-      return null;
+    setMedia((prev) => {
+      prev.forEach((m) => {
+        if (m.url) URL.revokeObjectURL(m.url);
+      });
+      return [];
     });
     setResults([]);
     setTimelineFrames([]);
@@ -74,16 +77,16 @@ export const MediaProvider = ({ children }) => {
 
   const submitPrompt = useCallback(
     async (prompt) => {
-      if (!prompt?.trim() || !media || isAnalyzing) return;
+      if (!prompt?.trim() || media.length === 0 || isAnalyzing) return;
 
       setIsAnalyzing(true);
       setError("");
 
       try {
         const response = await analyzeMediaRequest({
-          chatId: activeChatId,
-          media,
+          media: media[0],
           prompt,
+          files: media,
         });
         setResults(response.results ?? []);
         setTimelineFrames(response.timelineFrames ?? []);
@@ -131,6 +134,7 @@ export const MediaProvider = ({ children }) => {
       createNewChat,
       media,
       uploadMedia,
+      removeMedia,
       resetWorkspace,
       results,
       timelineFrames,
@@ -146,6 +150,7 @@ export const MediaProvider = ({ children }) => {
       createNewChat,
       media,
       uploadMedia,
+      removeMedia,
       resetWorkspace,
       results,
       timelineFrames,

@@ -8,9 +8,9 @@ import {
   User,
   MonitorPlay,
   Download,
+  X,
 } from "lucide-react";
 import { useMedia } from "../context/MediaContext";
-import VideoWorkspace from "../Components/VideoWorkspace";
 
 export default function Workspace() {
   const {
@@ -20,19 +20,18 @@ export default function Workspace() {
     createNewChat,
     media,
     uploadMedia,
+    removeMedia,
     resetWorkspace,
     results,
     submitPrompt,
-    downloadResults,
     isAnalyzing,
-    isDownloading,
     error,
   } = useMedia();
   const [prompt, setPrompt] = useState("");
 
   const onDrop = useCallback(
     (acceptedFiles) => {
-      uploadMedia(acceptedFiles[0]);
+      uploadMedia(acceptedFiles);
     },
     [uploadMedia],
   );
@@ -41,11 +40,23 @@ export default function Workspace() {
     onDrop,
     accept: { "video/*": [], "image/*": [] },
     noClick: true,
+    multiple: true,
+    disabled: media.length > 0,
   });
 
   const onSubmit = () => {
     submitPrompt(prompt);
     setPrompt("");
+  };
+
+  const handleDownload = () => {
+    if (!media.length) return;
+    const link = document.createElement("a");
+    link.href = results[0]?.img || media[0].url;
+    link.download = `results-${Date.now()}.zip`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (
@@ -98,7 +109,7 @@ export default function Workspace() {
         </aside>
 
         <main className='flex min-h-0 min-w-0 flex-col bg-[#090215] px-4 py-5 lg:px-8'>
-          {!media ? (
+          {media.length === 0 ? (
             <div
               {...getRootProps()}
               className={`flex min-h-0 flex-1 flex-col items-center justify-center rounded-[28px] border-2 border-dashed bg-[#0C041B] transition ${
@@ -111,29 +122,52 @@ export default function Workspace() {
               <MonitorPlay className='mb-4 h-20 w-20 text-[#A8A1CC]' />
               <p className='mb-6 whitespace-pre-line text-center text-[#A8A1CC]'>
                 {isDragActive
-                  ? "Отпустите файл здесь..."
-                  : "Выберите файл\nили перетащите его сюда"}
+                  ? "Отпустите файлы здесь..."
+                  : "Выберите файлы\nили перетащите их сюда"}
               </p>
               <button
                 onClick={open}
                 className='h-8 rounded-md bg-[#4C1DFF] px-12 text-sm transition hover:bg-[#5D33FF]'
               >
-                Выбрать файл
+                Выбрать файлы
               </button>
             </div>
           ) : (
-            <VideoWorkspace />
+            <div className="flex-1 overflow-y-auto p-4">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
+                {media.map((file) => (
+                  <div key={file.id} className="relative group">
+                    <img
+                      src={file.url}
+                      alt={file.name}
+                      className="h-32 w-full rounded-lg object-cover"
+                    />
+                    <button
+                      onClick={() => removeMedia(file.id)}
+                      className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-red-500 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                    <p className="mt-1 truncate text-xs text-[#8A84B5]">{file.name}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
 
           <div className='mt-4 rounded-xl border border-[#26194E] bg-[#0B051A] px-3 py-2'>
             <div className='mb-2 flex items-center gap-2 text-xs text-[#8E86B9]'>
               <Paperclip className='h-4 w-4' />
-              <button onClick={open} className='transition hover:text-white'>
-                Прикрепить файл
+              <button
+                onClick={open}
+                disabled={media.length > 0}
+                className='transition hover:text-white disabled:opacity-50 disabled:cursor-not-allowed'
+              >
+                Прикрепить файлы
               </button>
-              {media ? (
-                <span className='truncate text-[#B8B2D8]'>{media.name}</span>
-              ) : null}
+              {media.length > 0 && (
+                <span className='text-[#B8B2D8]'>{media.length} файлов</span>
+              )}
             </div>
 
             <div className='flex items-center gap-3'>
@@ -143,12 +177,12 @@ export default function Workspace() {
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
                 onKeyDown={(event) => event.key === "Enter" && onSubmit()}
-                disabled={!media || isAnalyzing}
+                disabled={media.length === 0 || isAnalyzing}
                 className='min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-[#7C739F] disabled:opacity-50'
               />
               <button
                 onClick={onSubmit}
-                disabled={!media || !prompt.trim() || isAnalyzing}
+                disabled={media.length === 0 || !prompt.trim() || isAnalyzing}
                 className='flex h-7 w-7 items-center justify-center rounded-full bg-[#4C1DFF] transition hover:bg-[#5D33FF] disabled:cursor-not-allowed disabled:opacity-50'
               >
                 <ArrowUp className='h-4 w-4' />
@@ -168,14 +202,14 @@ export default function Workspace() {
           </h2>
 
           {isAnalyzing ? (
-            <p className='text-sm text-[#8F88B7]'>Идёт обработка файла...</p>
+            <p className='text-sm text-[#8F88B7]'>Идёт обработка файлов...</p>
           ) : null}
 
           {!isAnalyzing && !results.length ? (
             <p className='text-sm text-[#8F88B7]'>Пока здесь ничего нет...</p>
           ) : null}
 
-          <div className='flex flex-1 flex-col gap-2 overflow-y-auto'>
+          <div className='flex flex-1 flex-col gap-3 overflow-y-auto'>
             {results.map((result) => (
               <article
                 key={result.id}
@@ -184,25 +218,37 @@ export default function Workspace() {
                 <div className='mb-2 flex items-center justify-between gap-2 text-xs'>
                   <div className='flex items-center gap-1 text-[#E5E1FF]'>
                     <Folder className='h-3.5 w-3.5' />
-                    <span>{result.folder}</span>
+                    <span className="truncate">{result.folder}</span>
                   </div>
-                  <span className='text-[#B8B2D8]'>{result.type}</span>
+                  <span className='rounded bg-[#4C1DFF]/20 px-2 py-0.5 text-[10px] text-[#B8B2D8]'>
+                    {result.type}
+                  </span>
                 </div>
-                <img
-                  src={result.img}
-                  alt={`${result.folder} ${result.type}`}
-                  className='h-16 w-full rounded object-cover'
-                />
+                {result.img && (
+                  <img
+                    src={result.img}
+                    alt={`${result.folder} ${result.type}`}
+                    className='h-24 w-full rounded object-cover'
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                    }}
+                  />
+                )}
+                {!result.img && (
+                  <div className='flex h-24 items-center justify-center rounded bg-[#1D1241] text-[#8F88B7]'>
+                    Нет изображения
+                  </div>
+                )}
               </article>
             ))}
           </div>
 
           <button
-            onClick={downloadResults}
-            disabled={!results.length || isDownloading}
+            onClick={handleDownload}
+            disabled={!results.length}
             className='mt-3 flex h-8 items-center justify-center gap-2 rounded-full bg-[#4C1DFF] text-xs transition hover:bg-[#5D33FF] disabled:cursor-not-allowed disabled:opacity-50'
           >
-            <span>{isDownloading ? "Скачивание..." : "Скачать файлы"}</span>
+            <span>Скачать результаты</span>
             <Download className='h-3.5 w-3.5' />
           </button>
         </aside>

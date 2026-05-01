@@ -1,13 +1,15 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
 /**
- * Анализ файла с отправкой промпта на реальный бекенд.
- * Отправляет multipart/form-data с payload (JSON) и файлами.
+ * Анализ файлов с отправкой промпта на реальный бекенд.
+ * Отправляет multipart/form-data с payload (JSON) и массивом файлов.
  */
-export const analyzeMediaRequest = async ({ media, prompt }) => {
+export const analyzeMediaRequest = async ({ media, files, prompt }) => {
   const formData = new FormData();
   formData.append("payload", JSON.stringify({ prompt }));
-  formData.append("files", media.file);
+  files.forEach((file) => {
+    formData.append("files", file.file);
+  });
 
   const token = localStorage.getItem("auth_token");
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
@@ -25,40 +27,35 @@ export const analyzeMediaRequest = async ({ media, prompt }) => {
 
   const data = await response.json();
 
-  const results = (data.entries || []).map((entry, index) => ({
-    id: `result-${index}`,
-    type: entry.detections?.length ? "детекция" : "без результатов",
-    folder: entry.filename,
-    img: entry.overlay_url
+  const results = (data.entries || []).map((entry, index) => {
+    const resultUrl = entry.overlay_url
       ? `${API_BASE_URL}${entry.overlay_url}`
       : entry.boxes_url
       ? `${API_BASE_URL}${entry.boxes_url}`
-      : media.url,
-  }));
+      : files[0]?.url;
+
+    return {
+      id: `result-${index}`,
+      type: entry.detections?.length ? getDetectionType(entry.detections) : "без результатов",
+      folder: entry.filename,
+      img: resultUrl,
+    };
+  });
 
   return { results, timelineFrames: [] };
 };
 
+const getDetectionType = (detections) => {
+  const hasSegmentation = detections.some((d) => d.class.includes("seg") || d.class.includes("mask"));
+  return hasSegmentation ? "сегментация" : "детекция";
+};
+
 /**
- * Скачивание результатов (zip/file URL).
- * В mock-режиме просто имитируется успех.
+ * Скачивание результатов - создаёт zip со всеми файлами.
  */
-export const downloadResultsRequest = async ({ chatId, results }) => {
-  if (USE_MOCK) {
-    await wait(400);
-    return;
-  }
-
-  const response = await fetch(`${API_BASE_URL}/workspace/download`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chatId,
-      resultIds: results.map((item) => item.id),
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error("Download request failed");
-  }
+export const downloadResultsRequest = async ({ results }) => {
+  const link = document.createElement("a");
+  link.href = results[0]?.img;
+  link.download = "detection-results.zip";
+  link.click();
 };
