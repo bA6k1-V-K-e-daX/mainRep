@@ -1,7 +1,29 @@
-import { Link } from "react-router-dom";
+import { useState } from "react";
+import { useNavigate, Link } from "react-router-dom";
 import Button from "../Components/Button";
+import { login } from "../api/api";
 
 export default function Auth() {
+  const navigate = useNavigate();
+  const [loginValue, setLoginValue] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+    try {
+      await login({ login: loginValue, password });
+      navigate("/workspace");
+    } catch (err) {
+      setError(err.message || "Ошибка входа");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <section className='relative mx-auto flex h-[calc(100vh-200px)] w-full max-w-6xl items-center justify-center overflow-hidden py-4 md:py-8'>
       <div className='grid w-full grid-cols-1 items-center gap-8 lg:grid-cols-[360px_1fr] lg:gap-20'>
@@ -18,7 +40,7 @@ export default function Auth() {
             Авторизация
           </h1>
 
-          <form className='space-y-8'>
+          <form className='space-y-8' onSubmit={handleSubmit}>
             <div className='space-y-6'>
               <label htmlFor='auth-login' className='sr-only'>
                 Логин или почта
@@ -27,6 +49,8 @@ export default function Auth() {
                 id='auth-login'
                 type='text'
                 placeholder='Логин/Почта'
+                value={loginValue}
+                onChange={(e) => setLoginValue(e.target.value)}
                 required
                 className='w-full border-b border-[#4500F9] bg-transparent pb-2 text-base text-white placeholder:text-[#8A84B5] focus:outline-none focus:ring-0'
               />
@@ -38,10 +62,14 @@ export default function Auth() {
                 id='auth-password'
                 type='password'
                 placeholder='Пароль'
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
                 required
                 className='w-full border-b border-[#4500F9] bg-transparent pb-2 text-base text-white placeholder:text-[#8A84B5] focus:outline-none focus:ring-0'
               />
             </div>
+
+            {error && <p className="text-sm text-red-500">{error}</p>}
 
             <div className='flex flex-wrap items-center justify-between gap-4'>
               <p className='text-sm text-[#8A84B5]'>
@@ -55,7 +83,8 @@ export default function Auth() {
               </p>
 
               <Button
-                title='Войти'
+                title={loading ? "Входим..." : "Войти"}
+                disabled={loading}
                 className='h-8 min-w-[110px] rounded-lg border-0 bg-[#4500F9] text-sm hover:bg-[#5A22FF] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#7D66FF] focus-visible:ring-offset-2 focus-visible:ring-offset-[#070018]'
               />
             </div>

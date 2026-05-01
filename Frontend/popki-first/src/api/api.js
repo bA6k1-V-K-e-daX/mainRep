@@ -30,3 +30,15 @@ const request = async (path, options = {}) => {
  */
 export const getHelloMessage = () => request("/hello");
 
+export const register = (data) =>
+  request("/v1/auth/register", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+export const login = (data) =>
+  request("/v1/auth/login", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
