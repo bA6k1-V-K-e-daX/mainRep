@@ -29,6 +29,7 @@ export const MediaProvider = ({ children }) => {
   const [media, setMedia] = useState([]);
   const [results, setResults] = useState([]);
   const [timelineFrames, setTimelineFrames] = useState([]);
+  const [messages, setMessages] = useState([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [error, setError] = useState("");
@@ -60,6 +61,7 @@ export const MediaProvider = ({ children }) => {
     });
     setResults([]);
     setTimelineFrames([]);
+    setMessages([]);
     setError("");
     setIsAnalyzing(false);
   }, []);
@@ -82,12 +84,34 @@ export const MediaProvider = ({ children }) => {
       setIsAnalyzing(true);
       setError("");
 
+      const userMessage = {
+        id: crypto.randomUUID(),
+        type: "user",
+        prompt,
+        media: [...media],
+        timestamp: Date.now(),
+      };
+      setMessages((prev) => [...prev, userMessage]);
+
+      // Очищаем media после отправки
+      setMedia([]);
+
       try {
         const response = await analyzeMediaRequest({
           media: media[0],
           prompt,
           files: media,
         });
+
+        const botMessage = {
+          id: crypto.randomUUID(),
+          type: "bot",
+          results: response.results ?? [],
+          prompt,
+          timestamp: Date.now(),
+        };
+        setMessages((prev) => [...prev, botMessage]);
+
         setResults(response.results ?? []);
         setTimelineFrames(response.timelineFrames ?? []);
       } catch {
@@ -119,11 +143,11 @@ export const MediaProvider = ({ children }) => {
 
   useEffect(
     () => () => {
-      if (media?.url) {
-        URL.revokeObjectURL(media.url);
-      }
+      media.forEach((m) => {
+        if (m.url) URL.revokeObjectURL(m.url);
+      });
     },
-    [media],
+    [],
   );
 
   const value = useMemo(
@@ -138,6 +162,7 @@ export const MediaProvider = ({ children }) => {
       resetWorkspace,
       results,
       timelineFrames,
+      messages,
       submitPrompt,
       downloadResults,
       isAnalyzing,
@@ -154,6 +179,7 @@ export const MediaProvider = ({ children }) => {
       resetWorkspace,
       results,
       timelineFrames,
+      messages,
       submitPrompt,
       downloadResults,
       isAnalyzing,
