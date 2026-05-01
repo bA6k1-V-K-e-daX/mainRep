@@ -15,7 +15,8 @@ export default function Auth() {
     setLoading(true);
     setError("");
     try {
-      await login({ login: loginValue, password });
+      const response = await login({ login: loginValue, password });
+      localStorage.setItem("auth_token", response.token);
       navigate("/workspace");
     } catch (err) {
       setError(err.message || "Ошибка входа");

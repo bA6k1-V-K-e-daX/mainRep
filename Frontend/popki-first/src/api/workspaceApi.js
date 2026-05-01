@@ -1,64 +1,42 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
-const USE_MOCK = (import.meta.env.VITE_USE_WORKSPACE_MOCK ?? "true") === "true";
-
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const buildMockResults = (mediaUrl) => [
-  {
-    id: "result-detection",
-    type: "детекция",
-    folder: "Коты",
-    img: mediaUrl,
-  },
-  {
-    id: "result-segmentation",
-    type: "сегментация",
-    folder: "Коты",
-    img: mediaUrl,
-  },
-  {
-    id: "result-frames",
-    type: "кадры",
-    folder: "Коты",
-    img: mediaUrl,
-  },
-];
-
-const buildMockFrames = (mediaUrl) =>
-  Array.from({ length: 10 }, (_, index) => ({
-    id: `frame-${index + 1}`,
-    url: mediaUrl,
-  }));
 
 /**
- * Анализ файла с отправкой промпта.
- * Для интеграции с реальным бэкендом отключите мок:
- * VITE_USE_WORKSPACE_MOCK=false
+ * Анализ файла с отправкой промпта на реальный бекенд.
+ * Отправляет multipart/form-data с payload (JSON) и файлами.
  */
-export const analyzeMediaRequest = async ({ chatId, media, prompt }) => {
-  if (USE_MOCK) {
-    await wait(1200);
-    return {
-      results: buildMockResults(media.url),
-      timelineFrames: buildMockFrames(media.url),
-    };
-  }
-
+export const analyzeMediaRequest = async ({ media, prompt }) => {
   const formData = new FormData();
-  formData.append("chatId", chatId ?? "");
-  formData.append("prompt", prompt);
-  formData.append("file", media.file);
+  formData.append("payload", JSON.stringify({ prompt }));
+  formData.append("files", media.file);
 
-  const response = await fetch(`${API_BASE_URL}/workspace/analyze`, {
+  const token = localStorage.getItem("auth_token");
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/detect`, {
     method: "POST",
+    headers,
     body: formData,
   });
 
   if (!response.ok) {
-    throw new Error("Analyze request failed");
+    const errorText = await response.text();
+    throw new Error(errorText || "Analyze request failed");
   }
 
-  return response.json();
+  const data = await response.json();
+
+  const results = (data.entries || []).map((entry, index) => ({
+    id: `result-${index}`,
+    type: entry.detections?.length ? "детекция" : "без результатов",
+    folder: entry.filename,
+    img: entry.overlay_url
+      ? `${API_BASE_URL}${entry.overlay_url}`
+      : entry.boxes_url
+      ? `${API_BASE_URL}${entry.boxes_url}`
+      : media.url,
+  }));
+
+  return { results, timelineFrames: [] };
 };
 
 /**
