@@ -25,7 +25,9 @@ export default function Workspace() {
     results,
     messages,
     submitPrompt,
+    downloadArchive,
     isAnalyzing,
+    filesCount,
     error,
   } = useMedia();
   const [prompt, setPrompt] = useState("");
@@ -60,16 +62,7 @@ export default function Workspace() {
   };
 
   const handleDownload = async () => {
-    if (!results.length) return;
-
-    results.forEach((result, i) => {
-      const link = document.createElement("a");
-      link.href = result.img;
-      link.download = `${result.type}-${i + 1}.png`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    });
+    await downloadArchive();
   };
 
   const renderMessage = (message) => {
@@ -110,35 +103,45 @@ export default function Workspace() {
             <p className="mb-2 text-sm text-[#D8D4F3]">{message.prompt}</p>
           )}
           {message.results && message.results.length > 0 && (
-            <div className="grid grid-cols-2 gap-2">
-              {message.results.map((result) => (
-                <div key={result.id}>
-                  {result.img ? (
-                    <img
-                      src={result.img}
-                      alt={`${result.folder} ${result.type}`}
-                      className="h-24 w-full rounded-lg object-cover"
-                      onError={(e) => {
-                        e.target.style.display = "none";
-                      }}
-                    />
-                  ) : (
-                    <div className="flex h-24 items-center justify-center rounded-lg bg-[#12092A]">
-                      <span className="text-xs text-[#8F88B7]">
+            <div>
+              <div className="grid grid-cols-2 gap-2">
+                {message.results.map((result) => (
+                  <div key={result.id}>
+                    {result.img ? (
+                      <img
+                        src={result.img}
+                        alt={`${result.folder} ${result.type}`}
+                        className="h-24 w-full rounded-lg object-cover"
+                        onError={(e) => {
+                          e.target.style.display = "none";
+                        }}
+                      />
+                    ) : (
+                      <div className="flex h-24 items-center justify-center rounded-lg bg-[#12092A]">
+                        <span className="text-xs text-[#8F88B7]">
+                          {result.folder}
+                        </span>
+                      </div>
+                    )}
+                    <div className="mt-1 flex items-center justify-between text-[10px]">
+                      <span className="text-[#8F88B7] truncate">
                         {result.folder}
                       </span>
+                      <span className="rounded bg-[#4C1DFF]/20 px-1.5 py-0.5 text-[#B8B2D8]">
+                        {result.type}
+                      </span>
                     </div>
-                  )}
-                  <div className="mt-1 flex items-center justify-between text-[10px]">
-                    <span className="text-[#8F88B7] truncate">
-                      {result.folder}
-                    </span>
-                    <span className="rounded bg-[#4C1DFF]/20 px-1.5 py-0.5 text-[#B8B2D8]">
-                      {result.type}
-                    </span>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
+              <button
+                onClick={downloadArchive}
+                disabled={!message.results.some((r) => r.img)}
+                className="mt-2 flex h-7 items-center gap-1.5 rounded-md bg-[#4C1DFF]/20 px-3 text-xs text-[#B8B2D8] transition hover:bg-[#4C1DFF]/30 disabled:opacity-50"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Скачать архив
+              </button>
             </div>
           )}
         </div>
@@ -226,8 +229,18 @@ export default function Workspace() {
                       P
                     </div>
                     <div className="rounded-2xl bg-[#1D1241] px-4 py-3">
-                      <p className="text-sm text-[#8F88B7]">
-                        Идёт обработка файлов...
+                      <div className="flex items-center gap-2">
+                        <div className="flex gap-1">
+                          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#8F88B7]"></span>
+                          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#8F88B7]" style={{ animationDelay: "0.1s" }}></span>
+                          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#8F88B7]" style={{ animationDelay: "0.2s" }}></span>
+                        </div>
+                        <p className="text-sm text-[#8F88B7]">
+                          Обработка {filesCount} файлов...
+                        </p>
+                      </div>
+                      <p className="mt-1 text-[10px] text-[#8F88B7]/60">
+                        Это может занять несколько минут
                       </p>
                     </div>
                   </div>

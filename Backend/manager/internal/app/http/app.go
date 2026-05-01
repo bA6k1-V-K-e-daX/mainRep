@@ -34,7 +34,7 @@ func New(cfg config.HttpConfig) *HTTPApp {
 	r.Use(middleware.ErrorHandler())
 	r.Use(cors.New(cors.Config{
 		AllowOriginFunc: func(origin string) bool {
-			return strings.HasPrefix(origin, "http://localhost:") || strings.HasPrefix(origin, "http://127.0.0.1:")
+			return strings.HasPrefix(origin, "http://localhost:") || strings.HasPrefix(origin, "http://127.0.0.1:") || strings.HasPrefix(origin, "http://172.")
 		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
@@ -81,3 +81,4 @@ func (a *HTTPApp) Shutdown(ctx context.Context) error {
 	}
 	return a.server.Shutdown(ctx)
 }
+
