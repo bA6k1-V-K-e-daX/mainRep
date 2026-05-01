@@ -13,9 +13,13 @@ export default function TryPeeky() {
       </div>
       <div className='flex w-full flex-col min-h-40 justify-between lg:max-w-2xl'>
         <div>
-          <h3 className='text-2xl text-center font-semibold leading-tight md:text-4xl lg:text-5xl'>
+          <h3 className='text-2xl text-center font-semibold leading-tight md:text-4xl lg:text-5xl lg:text-start'>
             Попробуйте Peeky в деле
           </h3>
+          <p className='mt-6 text-base leading-relaxed font-normal hidden md:text-lg md:block'>
+            Зарегистрируйтесь и загрузите первый файл. Оцените точность
+            распознавания и скорость работы Peeky прямо сейчас.
+          </p>
         </div>
         <div>
           <Link to='/registr'>

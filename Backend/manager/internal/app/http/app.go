@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"manager/internal/config"
@@ -32,11 +33,14 @@ func New(cfg config.HttpConfig) *HTTPApp {
 	r.Use(middleware.StructuredLogHandler())
 	r.Use(middleware.ErrorHandler())
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"*"}, // Modified for universal local access
-		AllowMethods:     []string{"GET", "POST", "OPTIONS"},
+		AllowOriginFunc: func(origin string) bool {
+			return strings.HasPrefix(origin, "http://localhost:") || strings.HasPrefix(origin, "http://127.0.0.1:")
+		},
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length", "Authorization"},
 		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
 	}))
 	address := fmt.Sprintf(":%d", cfg.Port)
 	return &HTTPApp{

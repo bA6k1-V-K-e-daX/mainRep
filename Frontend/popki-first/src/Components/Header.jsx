@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 export default function Header() {
   return (
     <div className='w-full'>
-      <div className='mx-auto my-6 flex h-14 w-[95%] max-w-screen-2xl items-center justify-between rounded-2xl border border-[#4500F9] px-4 py-2 md:my-8 md:px-6 lg:px-8 lg:w-[30%]'>
+      <div className='mx-auto my-6 flex h-14 w-[95%] max-w-screen-2xl items-center justify-between rounded-2xl border border-[#4500F9] px-4 py-2 md:my-8 md:px-6 md:w-50% lg:px-8 lg:w-[40%]'>
         <div className='flex items-center'>
           <Link to='/' className='flex items-center gap-2'>
             <img src='peeky-mini-logo.png' alt='' className='w-10 h-10' />

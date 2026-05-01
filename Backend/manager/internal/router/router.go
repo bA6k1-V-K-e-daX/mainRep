@@ -9,6 +9,9 @@ import (
 
 func RouterRegister(r *gin.Engine, svc *httpservices.HTTPService, volumePath string) {
 	r.GET("/health", func(c *gin.Context) { c.String(http.StatusOK, "OK") })
+	r.GET("/api/hello", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"message": "Hello from Go Backend!"})
+	})
 
 	v1 := r.Group("/api/v1")
 	{

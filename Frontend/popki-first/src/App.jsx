@@ -4,6 +4,7 @@ import {
   Route,
   useLocation,
 } from "react-router-dom";
+import { useEffect, useState } from "react";
 import "./App.css";
 
 import { MediaProvider } from "./context/MediaProvider";
@@ -12,6 +13,7 @@ import GreetingsPage from "./Pages/GreetingsPage";
 import Auth from "./Pages/Auth";
 import Registration from "./Pages/Registration";
 import Header from "./Components/Header";
+import { getHelloMessage } from "./api/api";
 
 import glowSpots from "./Constants/DATA";
 
@@ -19,6 +21,41 @@ import glowSpots from "./Constants/DATA";
 // Теперь здесь можно безопасно использовать useLocation()
 function AppContent() {
   const location = useLocation();
+  const [backendMessage, setBackendMessage] = useState("");
+  const [isLoadingMessage, setIsLoadingMessage] = useState(true);
+  const [messageError, setMessageError] = useState("");
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadHelloMessage = async () => {
+      setIsLoadingMessage(true);
+      setMessageError("");
+
+      try {
+        const data = await getHelloMessage();
+        if (!isMounted) return;
+        setBackendMessage(data?.message ?? "");
+      } catch (error) {
+        if (!isMounted) return;
+        setMessageError(
+          error instanceof Error
+            ? error.message
+            : "Не удалось получить сообщение с сервера",
+        );
+      } finally {
+        if (isMounted) {
+          setIsLoadingMessage(false);
+        }
+      }
+    };
+
+    loadHelloMessage();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Массив путей, где Header должен быть скрыт
   const hideHeaderRoutes = ["/workspace"];
@@ -56,6 +93,14 @@ function AppContent() {
               : ""
           }`}
         >
+          {isLoadingMessage && console.log("Загрузка сообщения с сервера...")}
+          {!isLoadingMessage &&
+            messageError &&
+            console.log(`Ошибка: ${messageError}`)}
+          {!isLoadingMessage &&
+            !messageError &&
+            console.log(`Сообщение от бэкенда: ${backendMessage}`)}
+
           <Routes>
             <Route path='/' element={<GreetingsPage />} />
             <Route path='/signin' element={<Auth />} />

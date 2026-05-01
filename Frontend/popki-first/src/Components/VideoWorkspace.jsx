@@ -1,16 +1,17 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import ReactPlayer from "react-player";
-import { Play, Pause, RotateCcw, RotateCw, ChevronDown } from "lucide-react";
+import { Play, Pause, RotateCcw, RotateCw } from "lucide-react";
 import { useMedia } from "../context/MediaContext";
 
 export default function VideoWorkspace() {
-  const { media } = useMedia();
+  const { media, timelineFrames } = useMedia();
   const playerRef = useRef(null);
 
   const [isPlaying, setIsPlaying] = useState(false);
-  const [progress, setProgress] = useState(0); // от 0 до 1
+  const [progress, setProgress] = useState(0);
   const [playedSeconds, setPlayedSeconds] = useState(0);
   const [duration, setDuration] = useState(0);
+  const isVideo = media?.kind === "video";
 
   const formatTime = (seconds) => {
     const m = Math.floor(seconds / 60)
@@ -23,90 +24,112 @@ export default function VideoWorkspace() {
   };
 
   const skip = (amount) => {
-    if (playerRef.current) {
+    if (playerRef.current && isVideo) {
       const currentTime = playerRef.current.getCurrentTime();
       playerRef.current.seekTo(currentTime + amount, "seconds");
     }
   };
 
+  const frames = useMemo(() => {
+    if (!isVideo) return [];
+    if (timelineFrames.length) {
+      return timelineFrames;
+    }
+    return media ? [{ id: "preview", url: media.url }] : [];
+  }, [isVideo, media, timelineFrames]);
+
   return (
-    <div className='flex-1 flex flex-col relative h-full w-full'>
-      {/* Плеер */}
-      <div className='flex-1 rounded-xl md:rounded-2xl lg:rounded-2xl bg-black overflow-hidden flex items-center justify-center relative shadow-lg min-h-0'>
-        <ReactPlayer
-          ref={playerRef}
-          url={media.url}
-          playing={isPlaying}
-          width='100%'
-          height='100%'
-          onProgress={(state) => {
-            setProgress(state.played);
-            setPlayedSeconds(state.playedSeconds);
-          }}
-          onDuration={setDuration}
-          style={{ objectFit: "contain" }}
-        />
-      </div>
-
-      {/* Таймлайн с ползунком, который двигается синхронно с видео */}
-      <div
-        className='h-10 sm:h-12 md:h-14 lg:h-16 mt-2 sm:mt-3 md:mt-4 lg:mt-4 bg-[#0a0710] rounded-lg md:rounded-xl lg:rounded-xl flex overflow-hidden relative border border-white/5 cursor-pointer flex-shrink-0'
-        onClick={(e) => {
-          // Простая перемотка по клику на таймлайн
-          const rect = e.currentTarget.getBoundingClientRect();
-          const percent = (e.clientX - rect.left) / rect.width;
-          playerRef.current.seekTo(percent, "fraction");
-        }}
-      >
-        {/* Индикатор прогресса */}
-        <div
-          className='absolute top-0 bottom-0 w-0.5 bg-[#4C1DFF] z-10 shadow-[0_0_8px_#4C1DFF]'
-          style={{ left: `${progress * 100}%` }}
-        />
-        {/* Имитация кадров (в реальном проекте генерируются бэкендом или ffmpeg.wasm) */}
-        {[...Array(12)].map((_, i) => (
-          <div
-            key={i}
-            className='flex-1 border-r border-black/50 bg-gray-800/20'
+    <div className='flex h-full flex-1 flex-col'>
+      <div className='flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-2xl bg-[#080313] p-4 shadow-[0_0_24px_rgba(0,0,0,0.45)]'>
+        {isVideo ? (
+          <ReactPlayer
+            ref={playerRef}
+            url={media.url}
+            playing={isPlaying}
+            width='100%'
+            height='100%'
+            onProgress={(state) => {
+              setProgress(state.played);
+              setPlayedSeconds(state.playedSeconds);
+            }}
+            onDuration={setDuration}
+            style={{ objectFit: "contain" }}
           />
-        ))}
+        ) : (
+          <img
+            src={media.url}
+            alt={media.name}
+            className='max-h-full w-auto max-w-full rounded-lg object-contain'
+          />
+        )}
       </div>
 
-      {/* Контролы плеера */}
-      <div className='flex flex-col sm:flex-row md:flex-row items-start sm:items-center md:items-center justify-between gap-2 sm:gap-3 md:gap-4 lg:gap-6 mt-2 sm:mt-3 md:mt-4 lg:mt-4 bg-[#0a0710] rounded-lg md:rounded-full px-3 sm:px-4 md:px-6 py-2 md:py-3 lg:py-3 border border-white/5 flex-shrink-0'>
-        <div className='flex items-center gap-2 md:gap-3 lg:gap-6 w-full sm:w-auto md:w-auto min-w-0'>
-          <span className='text-xs sm:text-sm md:text-sm lg:text-sm text-gray-400 font-mono shrink-0'>
-            {formatTime(playedSeconds)} / {formatTime(duration)}
-          </span>
-          <div className='flex items-center gap-1 md:gap-2 lg:gap-2 px-2 py-1 text-xs sm:text-sm md:text-sm lg:text-sm text-gray-300 truncate min-w-0 bg-white/5 sm:bg-white/5 md:bg-transparent rounded md:bg-transparent md:px-0'>
-            {media.name}
+      {isVideo ? (
+        <div
+          className='relative mt-4 flex h-16 overflow-hidden rounded-xl border border-[#26194E] bg-[#0B051A]'
+          onClick={(e) => {
+            if (!playerRef.current) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            const percent = (e.clientX - rect.left) / rect.width;
+            playerRef.current.seekTo(percent, "fraction");
+          }}
+        >
+          <div
+            className='absolute bottom-0 top-0 z-10 w-[2px] bg-[#5A22FF] shadow-[0_0_8px_#5A22FF]'
+            style={{ left: `${progress * 100}%` }}
+          />
+          {frames.map((frame) => (
+            <div
+              key={frame.id}
+              className='min-w-0 flex-1 border-r border-[#1A1334] last:border-r-0'
+            >
+              <img
+                src={frame.url}
+                alt='Превью кадра'
+                className='h-full w-full object-cover opacity-80'
+              />
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {isVideo ? (
+        <div className='mt-4 flex items-center justify-between rounded-xl border border-[#26194E] bg-[#0B051A] px-4 py-3'>
+          <div className='flex min-w-0 items-center gap-4'>
+            <span className='shrink-0 font-mono text-xs text-[#B3AED5] md:text-sm'>
+              {`${formatTime(playedSeconds)} / ${formatTime(duration)}`}
+            </span>
+            <div className='min-w-0 truncate text-xs text-white/80 md:text-sm'>
+              {media.name}
+            </div>
+          </div>
+
+          <div className='flex items-center gap-3'>
+            <button
+              onClick={() => skip(-15)}
+              className='p-1 text-[#8F88B7] transition hover:text-white'
+            >
+              <RotateCcw className='h-5 w-5' />
+            </button>
+            <button
+              onClick={() => skip(15)}
+              className='p-1 text-[#8F88B7] transition hover:text-white'
+            >
+              <RotateCw className='h-5 w-5' />
+            </button>
+            <button
+              onClick={() => setIsPlaying(!isPlaying)}
+              className='p-1 text-white transition hover:text-[#6D45FF]'
+            >
+              {isPlaying ? (
+                <Pause className='h-6 w-6 fill-current' />
+              ) : (
+                <Play className='h-6 w-6 fill-current' />
+              )}
+            </button>
           </div>
         </div>
-        <div className='flex items-center gap-1 sm:gap-2 md:gap-3 md:gap-4 lg:gap-4 shrink-0 w-full sm:w-auto md:w-auto justify-between sm:justify-end'>
-          <button
-            onClick={() => skip(-15)}
-            className='text-gray-400 hover:text-white transition p-1'
-          >
-            <RotateCcw className='w-4 sm:w-4 md:w-5 lg:w-5 h-4 sm:h-4 md:h-5 lg:h-5' />
-          </button>
-          <button
-            onClick={() => skip(15)}
-            className='text-gray-400 hover:text-white transition p-1'
-          >
-            <RotateCw className='w-4 sm:w-4 md:w-5 lg:w-5 h-4 sm:h-4 md:h-5 lg:h-5' />
-          </button>
-          <button
-            onClick={() => setIsPlaying(!isPlaying)}
-            className='text-white hover:text-[#4C1DFF] transition p-1'
-          >
-            {isPlaying ? (
-              <Pause className='w-5 sm:w-5 md:w-6 lg:w-6 h-5 sm:h-5 md:h-6 lg:h-6 fill-current' />
-            ) : (
-              <Play className='w-5 sm:w-5 md:w-6 lg:w-6 h-5 sm:h-5 md:h-6 lg:h-6 fill-current' />
-            )}
-          </button>
-        </div>
-      </div>
+      ) : null}
     </div>
   );
 }

@@ -4,7 +4,7 @@ export default function Greeting() {
   return (
     <div className='flex flex-1 items-start pt-[clamp(86px,13.65vw,340px)] md:pb-8 lg:pb-12'>
       <div className='flex w-full flex-col gap-8 lg:flex-row lg:gap-10 lg:justify-between'>
-        <div className='relative flex min-h-[600px] w-full flex-col items-start lg:min-h-[520px] lg:w-1/2'>
+        <div className='relative flex justify-between min-h-[600px] w-full flex-col items-start lg:min-h-[520px] lg:w-1/2'>
           <div>
             <h4 className='max-w-[17ch] text-[2rem] text-justify font-semibold leading-normal md:text-5xl lg:max-w-none lg:text-6xl/[120%] lg: lg:text-start'>
               Peeky - сервис для классификации фото и видео
@@ -21,11 +21,6 @@ export default function Greeting() {
               Мгновенная детекция, классификация и разметка объектов для вашего
               бизнеса. Загружаете файл — получаете JSON с результатами.
             </p>
-            <Button
-              className='rounded-full font-light md:hidden'
-              title='Подробнее'
-              icon='⟶'
-            />
           </div>
         </div>
         <div className='relative hidden h-[520px] w-full lg:block lg:w-[40%] xl:h-[360px]'>
