@@ -93,6 +93,19 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  frontend:
+    build:
+      context: ./Frontend/popki-first
+      dockerfile: Dockerfile
+    container_name: frontend
+    ports:
+      - "3000:80"
+    networks:
+      - peeky-net
+    depends_on:
+      - manager
+    restart: unless-stopped
+
 volumes:
   pgdata:
   shared-volume:

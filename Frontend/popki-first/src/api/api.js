@@ -30,3 +30,24 @@ const request = async (path, options = {}) => {
  */
 export const getHelloMessage = () => request("/hello");
 
+export const register = (data) =>
+  request("/v1/auth/register", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+export const login = async (data) => {
+  const response = await fetch(`${API_BASE_URL}/v1/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || `Request failed with status ${response.status}`);
+  }
+
+  return response.json();
+};
+
