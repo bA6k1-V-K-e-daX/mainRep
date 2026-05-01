@@ -1,82 +1,46 @@
+"""
+Сценарий обработки одного запроса детекции.
+
+Новый поток (Gemma 4 Vision):
+    1. Пока llama-server (Gemma) работает — для каждой картинки:
+       a. Vision-вызов: картинка + prompt → [{"label", "confidence"}]
+       b. Confidence-фильтр (min >= 0.6 по умолчанию)
+       c. Relevance-фильтр (текстовый вызов Gemma без картинки)
+    2. Собираем per-image словарь {image_name: [labels]}.
+    3. Останавливаем Gemma (освобождаем VRAM).
+    4. Запускаем detection_pipline.py с labels.json (SAM3).
+    5. Перезапускаем Gemma для следующего запроса.
+    6. Читаем report.txt и возвращаем результат.
+"""
+
 import json
 import logging
-import os
 import platform
-import re
 import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Dict, List, Tuple
 
-import requests
-
-# Импортируем конфиг для пути к SAM3
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from config.settings import VisionConfig
+from app.base_pipline.gemma_client import (
+    extract_labels_for_image,
+    extract_user_labels_from_prompt,
+    find_missing_user_labels,
+)
 
 logger = logging.getLogger(__name__)
 
-_LLM_PORT = int(os.getenv("LLAMA_PORT", "8081"))
-_LLM_URL = f"http://127.0.0.1:{_LLM_PORT}"
-
-_QWEN_PROMPT = """
-Extract ONLY visual objects from user request. Ignore greetings, emotions, filler words. Output English words separated by " . ".
-
-CRITICAL RULES:
-- Lowercase, no extra text
-- Translate to English, use singular
-- Extract ONLY objects (nouns) that can be seen in an image
-- Specific objects ALWAYS override categories: horse NOT animal, banana NOT fruit, house NOT building
-- Skip: greetings, emotions, actions, colors, sizes, "может", "как бы", "хочу", "найти", "помочь"
-- Keep multi-word objects: traffic light, fire truck
-- If user asks for "everything" -> object
-- If no visual objects -> output nothing
-
-Request: {user_prompt}
-Answer:
-"""
-
-
-def _parse_query_via_llm(prompt: str) -> Optional[str]:
-    """Парсит промпт через LLM HTTP API. Возвращает строку вида 'label1 . label2' или None."""
-    try:
-        resp = requests.post(
-            f"{_LLM_URL}/v1/chat/completions",
-            json={
-                "messages": [{"role": "user", "content": _QWEN_PROMPT.format(user_prompt=prompt)}],
-                "max_tokens": 96,
-                "temperature": 0.0,
-            },
-            timeout=30,
-        )
-        resp.raise_for_status()
-        raw = resp.json()["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        logger.warning(f"LLM parse failed: {e}")
-        return None
-
-    cleaned = raw.replace("\n", " ").strip()
-    if not cleaned or cleaned in {"none", "[]"}:
-        return None
-
-    chunks = [c.strip() for c in re.split(r"\s*\.\s*", cleaned) if c.strip()]
-    if not chunks:
-        return None
-
-    # rule-парсер разбивает по запятым, поэтому используем запятую
-    return ", ".join(chunks)
+VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
 
 
 def _stop_llama_server() -> None:
-    """Убивает процесс llama-server для освобождения VRAM."""
+    """Убивает процесс llama-server чтобы освободить VRAM для SAM3."""
     logger.info("Stopping llama-server to free VRAM...")
     try:
         if platform.system() == "Windows":
-            subprocess.run(
-                ["taskkill", "/F", "/IM", "llama-server.exe"],
-                capture_output=True,
-            )
+            subprocess.run(["taskkill", "/F", "/IM", "llama-server.exe"], capture_output=True)
         else:
             subprocess.run(["pkill", "-f", "llama-server"], capture_output=True)
         time.sleep(1)
@@ -86,17 +50,93 @@ def _stop_llama_server() -> None:
 
 
 def _start_llama_server() -> None:
-    """Перезапускает llama-server и ждёт готовности."""
+    """Перезапускает llama-server (Gemma) и ждёт готовности."""
     logger.info("Restarting llama-server...")
     try:
         from services import LlamaServer
         server = LlamaServer()
-        if server.start(timeout=120):
+        if server.start(timeout=180):
             logger.info("llama-server restarted successfully")
         else:
             logger.error("llama-server failed to restart")
     except Exception as e:
         logger.error(f"Could not restart llama-server: {e}")
+
+
+def _collect_images(source_path: Path) -> List[Path]:
+    return sorted(
+        p for p in source_path.iterdir()
+        if p.is_file() and p.suffix.lower() in VALID_EXTENSIONS
+    )
+
+
+def _analyze_images_with_gemma(
+    images: List[Path],
+    query: str,
+    output_dir: Path,
+) -> Dict[str, List[str]]:
+    """
+    Для каждой картинки вызывает Gemma Vision + relevance filter.
+    Возвращает mapping {image_name: [labels]}.
+    Сохраняет трассу в output_dir/gemma_analysis.json.
+    """
+    user_labels = extract_user_labels_from_prompt(query)
+    logger.info(f"User labels from prompt: {user_labels}")
+
+    labels_per_image: Dict[str, List[str]] = {}
+    trace: List[dict] = []
+
+    for idx, img_path in enumerate(images, 1):
+        logger.info(f"[Gemma {idx}/{len(images)}] {img_path.name}")
+        result = extract_labels_for_image(img_path, query, user_labels=user_labels)
+        gemma_labels = list(result["labels"])
+        had_detections = bool(result["labels_raw"])
+        covered_user = set(result.get("covered_user_labels", []))
+
+        if gemma_labels:
+            # Gemma нашла релевантные метки — добавляем только user_labels,
+            # которые НЕ покрыты детекциями (напр. dog покрывает animal → animal не добавляем)
+            missing = [l for l in user_labels if l not in covered_user]
+        elif had_detections:
+            # Gemma что-то видела, но всё отсеяно (hypernym / unrelated) →
+            # fallback: добавляем ВСЕ user_labels
+            missing = list(user_labels)
+        else:
+            # Gemma реально ничего не детектила → не бомбим SAM3 лишним
+            missing = []
+        gemma_set = set(gemma_labels)
+        added_from_user = [l for l in missing if l not in gemma_set]
+        final_labels = gemma_labels + added_from_user
+
+        labels_per_image[img_path.name] = final_labels
+        trace.append({
+            "image": img_path.name,
+            "labels": final_labels,
+            "gemma_labels": gemma_labels,
+            "added_from_user": added_from_user,
+            "covered_user_labels": sorted(covered_user),
+            "labels_raw": result["labels_raw"],
+            "filtered_by_confidence": result["filtered_by_confidence"],
+            "filtered_by_relevance": result["filtered_by_relevance"],
+            "status": result["status"],
+            "error": result["error"],
+        })
+
+        if final_labels:
+            logger.info(f"  → {final_labels} (gemma={gemma_labels}, added={added_from_user})")
+        else:
+            logger.info("  → [] (ничего релевантного)")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "gemma_analysis.json").write_text(
+        json.dumps(
+            {"query": query, "user_labels": user_labels, "per_image": trace},
+            indent=2,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    return labels_per_image
 
 
 class ImageDetectionUseCase:
@@ -105,7 +145,7 @@ class ImageDetectionUseCase:
         query_id: int,
         dir_path: str,
         prompt: str,
-    ) -> tuple[str, dict, list[dict]]:
+    ) -> Tuple[str, dict, list[dict]]:
         if not dir_path:
             raise ValueError("dir_path cannot be empty")
         if not Path(dir_path).exists():
@@ -122,42 +162,71 @@ class ImageDetectionUseCase:
         if not effective_prompt:
             raise ValueError("prompt cannot be empty")
 
-        # 1. Парсим запрос через LLM (пока он ещё запущен)
-        parsed_text = _parse_query_via_llm(effective_prompt)
-        logger.info(f"LLM parsed labels: {parsed_text!r}")
+        images = _collect_images(source_path)
+        if not images:
+            raise FileNotFoundError(f"No images found in: {source_path}")
 
-        # 2. Останавливаем llama-server — освобождаем VRAM для DINO+SAM
+        # 1. Gemma Vision + relevance filter для каждой картинки
+        labels_per_image = _analyze_images_with_gemma(images, effective_prompt, save_path)
+
+        # Если НИ для одной картинки не найдено релевантных меток —
+        # сохраняем ошибку и возвращаем пустой результат.
+        total_labels = sum(len(v) for v in labels_per_image.values())
+        if total_labels == 0:
+            logger.warning("Gemma не нашла ни одного релевантного объекта")
+            save_path.mkdir(parents=True, exist_ok=True)
+            (save_path / "report.txt").write_text("", encoding="utf-8")
+            return str(save_path), {}, []
+
+        # 2. Останавливаем Gemma — освобождаем VRAM для SAM3
         _stop_llama_server()
 
         try:
-            # 3. Запускаем пайплайн с готовыми метками (без LLM внутри subprocess)
+            # 3. SAM3 подпроцесс с per-image labels JSON
             self._run_sam_pipeline(
                 source_path=source_path,
                 save_path=save_path,
-                text=parsed_text or "object",
+                labels_per_image=labels_per_image,
                 original_query=effective_prompt,
             )
         finally:
-            # 4. Перезапускаем llama-server для следующего запроса
+            # 4. Перезапускаем Gemma для следующего запроса
             _start_llama_server()
 
         counts, instance_infos = self._read_report(save_path / "report.txt")
         return str(save_path), counts, instance_infos
 
-    def _run_sam_pipeline(self, source_path: Path, save_path: Path, text: str, original_query: str = "") -> None:
+    def _run_sam_pipeline(
+        self,
+        source_path: Path,
+        save_path: Path,
+        labels_per_image: Dict[str, List[str]],
+        original_query: str = "",
+    ) -> None:
+        save_path.mkdir(parents=True, exist_ok=True)
+        labels_json_path = save_path / "labels_per_image.json"
+        labels_json_path.write_text(
+            json.dumps(labels_per_image, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
         script_path = Path(__file__).resolve().parents[1] / "base_pipline" / "detection_pipline.py"
         cmd = [
             sys.executable,
             str(script_path),
             "--images-dir", str(source_path),
-            "--text", text,
-            "--query-parser", "rule",
+            "--labels-json", str(labels_json_path),
             "--output-dir", str(save_path),
             "--sam3-checkpoint", VisionConfig.get_checkpoint_path(),
         ]
         if original_query:
             cmd += ["--original-query", original_query]
+
         completed = subprocess.run(cmd, capture_output=True, text=True)
+        if completed.stdout:
+            logger.info(f"SAM pipeline stdout:\n{completed.stdout}")
+        if completed.stderr:
+            logger.warning(f"SAM pipeline stderr:\n{completed.stderr}")
         if completed.returncode != 0:
             raise RuntimeError(
                 "SAM pipeline failed.\n"
@@ -197,13 +266,11 @@ class ImageDetectionUseCase:
                 conf = float(det.get("confidence", 0.0))
                 bbox = [float(v) for v in det.get("bbox", [])]
                 counts[cls_name] = counts.get(cls_name, 0) + 1
-                instance_infos.append(
-                    {
-                        "class_name": cls_name,
-                        "confidence": conf,
-                        "bbox": bbox,
-                    }
-                )
+                instance_infos.append({
+                    "class_name": cls_name,
+                    "confidence": conf,
+                    "bbox": bbox,
+                })
 
             if idx < len(lines) and lines[idx].strip() == "---":
                 idx += 1

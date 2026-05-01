@@ -17,7 +17,7 @@ ENV CUDA_HOME=/usr/local/cuda
 
 # === СБОРКА llama.cpp С CUDA ===
 RUN mkdir -p ${LLAMA_BIN} && \
-    git clone --depth 1 --branch b5400 https://github.com/ggerganov/llama.cpp /tmp/llama.cpp && \
+    git clone --depth 1 --branch b8882 https://github.com/ggml-org/llama.cpp /tmp/llama.cpp && \
     cd /tmp/llama.cpp && \
     cmake -B build \
         -DGGML_CUDA=ON \
@@ -27,7 +27,8 @@ RUN mkdir -p ${LLAMA_BIN} && \
         -DCMAKE_EXE_LINKER_FLAGS="-Wl,--allow-shlib-undefined" && \
     cmake --build build --config Release --target llama-server -j$(nproc) && \
     cp build/bin/llama-server ${LLAMA_BIN}/ && \
-    cp build/bin/lib*.so ${LLAMA_BIN}/ 2>/dev/null || true && \
+    find build -type f \( -name "*.so" -o -name "*.so.*" \) -exec cp -P {} ${LLAMA_BIN}/ \; && \
+    find build -type l \( -name "*.so" -o -name "*.so.*" \) -exec cp -P {} ${LLAMA_BIN}/ \; && \
     chmod +x ${LLAMA_BIN}/llama-server && \
     rm -rf /tmp/llama.cpp /build/build
 
@@ -57,6 +58,9 @@ RUN mkdir -p ${MODEL_DIR}
 COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
+# === Папка моделей — заполняется через volume при первом запуске ===
+RUN mkdir -p ${MODEL_DIR}
+
 # === Код приложения ===
 COPY app/ ./app/
 COPY main.py .
@@ -68,12 +72,15 @@ COPY scripts/ ./scripts/
 ENV PYTHONUNBUFFERED=1 \
     RUNNING_IN_DOCKER=true \
     LLAMA_SERVER_PATH=/app/llama-bin/llama-server \
-    LLAMA_MODEL_PATH=/app/models/Qwen2.5-3B-Instruct-Q6_K.gguf \
-    LLM_SERVICE_URL=http://127.0.0.1:8081 \
+    LLAMA_MODEL_PATH=/app/models/google_gemma-4-E4B-it-Q4_K_M.gguf \
+    LLAMA_MMPROJ_PATH=/app/models/mmproj-google_gemma-4-E4B-it-f16.gguf \
+    LLAMA_PORT=8000 \
+    LLAMA_HOST=127.0.0.1 \
+    LLM_SERVICE_URL=http://127.0.0.1:8000 \
     LD_LIBRARY_PATH=/app/llama-bin:${LD_LIBRARY_PATH}
 
 # === Порты ===
-EXPOSE 8081 50051
+EXPOSE 8000 50051
 
 # === Запуск ===
 RUN chmod +x /app/scripts/entrypoint.sh

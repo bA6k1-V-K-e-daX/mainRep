@@ -1,10 +1,20 @@
+"""
+SAM3 detection + segmentation pipeline (subprocess).
+
+Принимает либо:
+  --text "car . person"              — один список меток на все изображения
+  --labels-json /path/to/labels.json — mapping {image_name: [labels]} per-image
+
+В новом Gemma-флоу используется --labels-json (каждая картинка имеет свои метки,
+отобранные Gemma Vision + relevance filter).
+"""
+
 import argparse
 import gc
 import json
 import os
 import re
 import sys
-import requests
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -20,79 +30,10 @@ from app.base_pipline.sam_pipline import (
     load_sam3_components,
     run_sam3_detections,
 )
-from config.settings import VisionConfig
 
 
 VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
 
-QWEN_LITE_PROMPT = """
-Extract ONLY visual objects from user request. Ignore greetings, emotions, filler words. Output English words separated by " . ".
-
-CRITICAL RULES:
-- Lowercase, no extra text
-- Translate to English, use singular
-- Extract ONLY objects (nouns) that can be seen in an image
-- Specific objects ALWAYS override categories: horse NOT animal, banana NOT fruit, house NOT building
-- Skip: greetings, emotions, actions, colors, sizes, "может", "как бы", "хочу", "найти", "помочь"
-- Keep multi-word objects: traffic light, fire truck
-- If user asks for "everything" -> object
-- If no visual objects -> output nothing
-
-EXAMPLES OF CONVERSATIONAL REQUESTS:
-
-User: блин привет жоска хочу найти коня
-Answer: horse
-
-User: может людей, и дартс
-Answer: person . dart
-
-User: а может ещё и домик и банан
-Answer: house . banana
-
-User: блин привет жоска хочу найти коня, может людей, и дартс, а может ещё и домик и банан, можешь мне помочь?
-Answer: horse . person . dart . house . banana
-
-User: найди кота и собаку пожалуйста
-Answer: cat . dog
-
-User: кота хочу
-Answer: cat
-
-User: хочу машину красную ну и может быть дом
-Answer: car . house
-
-User: привет, как дела? найди животное такое, ну лошадь
-Answer: horse
-
-User: покажи фрукты, ну банан и яблоко
-Answer: fruit . banana . apple
-
-User: а есть там птицы? ну воробей или орёл
-Answer: bird . sparrow . eagle
-
-User: найди всё что там есть
-Answer: object
-
-User: может там дартс есть?
-Answer: dart
-
-User: привет, найди коня, ну или лошадь, короче
-Answer: horse
-
-User: любовь и счастье найди
-Answer: 
-
-User: время покажи, дату
-Answer: 
-
-User: красивые закаты, эмоции
-Answer: 
-
-Request: {user_prompt}
-Answer:
-"""
-
-LLM_SERVICE_URL = os.getenv("LLM_SERVICE_URL", "http://127.0.0.1:8081")
 
 def collect_images(image_path: Optional[Path], images_dir: Optional[Path]) -> List[Path]:
     if image_path and images_dir:
@@ -116,247 +57,34 @@ def collect_images(image_path: Optional[Path], images_dir: Optional[Path]) -> Li
     return images
 
 
-def build_prompt_from_dictionary(dictionary_name: str) -> str:
-    # Legacy helper kept for compatibility with older runs/args.
-    return "object."
+def load_labels_per_image(path: Path) -> Dict[str, List[str]]:
+    """Загружает mapping {image_name: [labels]} из JSON."""
+    if not path.exists():
+        raise FileNotFoundError(f"labels-json not found: {path}")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("labels-json must be an object mapping image_name -> list[str]")
+    out: Dict[str, List[str]] = {}
+    for name, labels in data.items():
+        if isinstance(labels, list):
+            out[str(name)] = [str(x).strip().lower() for x in labels if str(x).strip()]
+        else:
+            out[str(name)] = []
+    return out
 
 
-def map_token_to_english_label(token: str) -> str:
-    token = token.strip().lower()
-    return token
-
-
-def is_generic_query(query: str) -> bool:
-    q = query.strip().lower()
-    generic_phrases = [
-        "find everything",
-        "detect everything",
-        "find all",
-        "all objects",
-        "find objects",
-        "detect objects",
-        "найди все",
-        "найди всё",
-        "найти все",
-        "найти всё",
-        "найди объекты",
-        "найти объекты",
-        "объекты на фото",
-        "object",
-        "objects",
-    ]
-    return any(phrase in q for phrase in generic_phrases)
-
-
-def normalize_specific_query_to_prompt(query: str) -> str:
-    q = query.lower()
-    q = re.sub(r"[\"'`]+", " ", q)
-    q = re.sub(r"\b(find|detect|segment|locate)\b", " ", q)
-    q = re.sub(r"\b(найди|найти|сегментируй|сегментировать|обнаружь|обнаружить)\b", " ", q)
-    q = re.sub(r"\b(on image|in image|on photo|in photo|на фото|на изображении)\b", " ", q)
-    q = q.replace(" и ", ",")
-    q = q.replace(" and ", ",")
-
-    q = re.sub(r"\b(мне|пожалуйста|pls|please)\b", " ", q)
-    tokens = [t.strip() for t in re.split(r"[,;]+", q) if t.strip()]
-    normalized: List[str] = []
-    for token in tokens:
-        token = map_token_to_english_label(token)
-        token = re.sub(r"[^a-z0-9\s\-]", "", token)
-        token = re.sub(r"\s+", " ", token).strip()
-        normalized.append(token)
-
-    if not normalized:
-        return "object."
-    return ". ".join(normalized) + "."
-
-
-def normalize_labels(labels: List[str]) -> List[str]:
-    canonical_map = {
-        "auto": "car",
-        "automobile": "car",
-        "vehicle": "car",
-        "motorbike": "motorcycle",
-        "bike": "bicycle",
-        "cycle": "bicycle",
-        "stool": "chair",
-        "man": "person",
-        "woman": "person",
-        "people": "person",
-        "human": "person",
-        "kitty": "cat",
-        "puppy": "dog",
-        "motociclet": "motorcycle",
-    }
-    normalized: List[str] = []
-    for raw in labels:
-        val = raw.strip().lower()
-        if not val:
-            continue
-        val = map_token_to_english_label(val)
-        val = re.sub(r"[^a-z0-9\s\-]", "", val)
-        val = re.sub(r"\s+", " ", val).strip()
-        val = canonical_map.get(val, val)
-        if val in {"object", "objects"}:
-            continue
-        if val and val not in normalized:
-            normalized.append(val)
-    return normalized
-
-
-BAD_LABEL_TOKENS = {
-    "example",
-    "examples",
-    "query",
-    "queries",
-    "extraid0",
-    "extraid1",
-    "extraid2",
-    "none",
-    "null",
-}
-
-
-def is_plausible_label(label: str) -> bool:
-    value = label.strip().lower()
-    if not value:
-        return False
-    if any(ch.isdigit() for ch in value):
-        return False
-    if len(value.split()) > 2:
-        return False
-    if value in BAD_LABEL_TOKENS:
-        return False
-    tokens = value.split()
-    for tok in tokens:
-        if tok in BAD_LABEL_TOKENS:
-            return False
-        if not re.fullmatch(r"[a-z][a-z\-]*", tok):
-            return False
-    return True
-
-
-def clean_plausible_labels(labels: List[str]) -> List[str]:
-    cleaned: List[str] = []
-    for label in labels:
-        if is_plausible_label(label) and label not in cleaned:
-            cleaned.append(label)
-    return cleaned
-
-
-def are_english_labels(labels: List[str]) -> bool:
-    if not labels:
-        return False
-    return all(is_plausible_label(label) for label in labels)
-
-
-def parse_query_with_llm(
-    query: str,
-    llm_model_id: str = None,  # Больше не используется, оставлен для совместимости
-    device: str = None,        # Больше не используется
-    max_new_tokens: int = 96,
-) -> Dict[str, object]:
-    """
-    Заменяет локальную загрузку LLM на HTTP-запрос к llama.cpp серверу.
-    Экономит ~1.3 ГБ VRAM и ускоряет запуск.
-    """
-    prompt = QWEN_LITE_PROMPT.format(user_prompt=query)
-    
-    try:
-        resp = requests.post(
-            f"{LLM_SERVICE_URL}/v1/chat/completions",
-            json={
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": max_new_tokens,
-                "temperature": 0.0,
-            },
-            timeout=30
-        )
-        resp.raise_for_status()
-        raw_text = resp.json()['choices'][0]['message']['content'].strip()
-    except requests.exceptions.ConnectionError:
-        return {
-            "ok": False,
-            "labels": [],
-            "raw_text": "",
-            "status": "connection_error",
-            "error": f"Cannot connect to LLM service at {LLM_SERVICE_URL}"
-        }
-    except Exception as e:
-        return {
-            "ok": False,
-            "labels": [],
-            "raw_text": "",
-            "status": "http_error",
-            "error": str(e)
-        }
-    
-    parse_status = "delimiter_parse"
-    cleaned_output = raw_text.replace("\n", " ").strip()
-    
-    if cleaned_output in {"", "none", "[]"}:
-        return {"ok": False, "labels": [], "raw_text": raw_text, "status": "empty_output"}
-    
-    chunks = [c.strip() for c in re.split(r"\s*\.\s*", cleaned_output) if c.strip()]
-    labels = clean_plausible_labels(normalize_labels(chunks))
-    labels = [x for x in labels if 1 <= len(x.split()) <= 3]
-    
-    if not labels:
-        return {"ok": False, "labels": [], "raw_text": raw_text, "status": parse_status}
-    
-    return {"ok": True, "labels": labels, "raw_text": raw_text, "status": parse_status}
-
-
-def resolve_query_with_llm(
-    query: str,
-    llm_model_id: str = None,  # Не используется, оставлен для совместимости
-    device: str = None,        # Не используется
-    llm_max_new_tokens: int = 96,
-) -> Dict[str, object]:
-    """Обёртка для parse_query_with_llm с обработкой ошибок"""
-    try:
-        parsed = parse_query_with_llm(
-            query=query,
-            llm_model_id=llm_model_id,
-            device=device,
-            max_new_tokens=llm_max_new_tokens,
-        )
-    except Exception as exc:
-        return {
-            "ok": False,
-            "labels": [],
-            "prompt": "",
-            "raw_text": "",
-            "status": "exception",
-            "error": str(exc),
-        }
-    
-    labels: List[str] = [str(x) for x in parsed.get("labels", [])]
-    if not parsed.get("ok") or not labels or not are_english_labels(labels):
-        return {
-            "ok": False,
-            "labels": [],
-            "prompt": "",
-            "raw_text": str(parsed.get("raw_text", "")),
-            "status": str(parsed.get("status", "invalid")),
-            "error": "",
-        }
-    
-    prompt = ". ".join(labels) + "."
-    return {
-        "ok": True,
-        "labels": labels,
-        "prompt": prompt,
-        "raw_text": str(parsed.get("raw_text", "")),
-        "status": str(parsed.get("status", "ok")),
-        "error": "",
-    }
-
-
-def build_effective_prompt(query: str, label_dictionary: str) -> str:
-    if is_generic_query(query):
-        return "object."
-    return normalize_specific_query_to_prompt(query)
+def parse_text_labels(text: str) -> List[str]:
+    """Разбирает --text 'car . person . dog' → ['car', 'person', 'dog']."""
+    if not text:
+        return []
+    chunks = [c.strip().lower() for c in re.split(r"[.,]", text) if c.strip()]
+    seen = set()
+    out = []
+    for c in chunks:
+        if c and c not in seen and c != "object":
+            seen.add(c)
+            out.append(c)
+    return out
 
 
 def save_outputs_colored(
@@ -364,28 +92,24 @@ def save_outputs_colored(
     mask_uint8: np.ndarray,
     out_prefix: Path,
     detections: List[Dict[str, object]] = None,
-    individual_masks: List[np.ndarray] = None
+    individual_masks: List[np.ndarray] = None,
 ) -> Tuple[Path, Path]:
-    """Сохраняет маску и оверлей, где каждый объект своего цвета."""
     mask_img = Image.fromarray(mask_uint8, mode="L")
     mask_path = out_prefix.with_name(f"{out_prefix.name}_mask.png")
     overlay_path = out_prefix.with_name(f"{out_prefix.name}_overlay.png")
-    
+
     overlay = image.convert("RGB").copy()
-    draw = ImageDraw.Draw(overlay)
-    
+
     if individual_masks and detections and len(individual_masks) == len(detections):
         color_mask = np.zeros((image.height, image.width, 3), dtype=np.uint8)
-        
-        for idx, (det, box_mask) in enumerate(zip(detections, individual_masks)):
+        for idx, (_, box_mask) in enumerate(zip(detections, individual_masks)):
             color = get_distinct_color(idx)
             color_mask[box_mask > 0] = color
-            # Рамки и подписи убраны - только цветная маска
-        
+
         color_mask_img = Image.fromarray(color_mask, mode="RGB")
         color_mask_path = out_prefix.with_name(f"{out_prefix.name}_color_mask.png")
         color_mask_img.save(color_mask_path)
-        
+
         alpha = Image.fromarray((mask_uint8 > 0).astype(np.uint8) * 140, mode="L")
         color_mask_overlay = Image.fromarray(color_mask, mode="RGB")
         overlay.paste(color_mask_overlay, mask=alpha)
@@ -397,7 +121,6 @@ def save_outputs_colored(
     mask_img.save(mask_path)
     overlay.save(overlay_path)
     return mask_path, overlay_path
-
 
 
 def save_boxes_preview(
@@ -444,7 +167,6 @@ def save_detections_json(
 
 
 def build_image_output_prefix(output_dir: Path, image_path: Path) -> Path:
-    # Per-image folder to keep artifacts isolated for batch runs.
     ext = image_path.suffix.lower().lstrip(".") or "img"
     folder_name = f"{image_path.stem}_{ext}"
     image_dir = output_dir / folder_name
@@ -566,13 +288,12 @@ def deduplicate_cross_label_detections(
     return kept, dropped
 
 
-
 def run(
     sam3_checkpoint_path: str,
     image_files: Sequence[Path],
     output_dir: Path,
-    text_prompt: str,
-    target_labels: Optional[List[str]],
+    labels_per_image: Dict[str, List[str]],
+    fallback_labels: List[str],
     device: str,
     cpu_threads: int,
     min_box_area_ratio: float,
@@ -581,8 +302,11 @@ def run(
     min_confidence: float,
     large_box_confidence_override: float,
     dedup_iou_threshold: float,
-    llm_trace: Optional[Dict[str, object]],
 ) -> None:
+    """
+    Основной цикл. На каждое изображение берутся метки из labels_per_image
+    (по имени файла). Если нет — используются fallback_labels.
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
     report_path = output_dir / "report.txt"
     if report_path.exists():
@@ -596,8 +320,8 @@ def run(
 
     run_meta = {
         "sam3_checkpoint_path": sam3_checkpoint_path,
-        "text_prompt": text_prompt,
-        "target_labels": target_labels or [],
+        "labels_per_image": labels_per_image,
+        "fallback_labels": fallback_labels,
         "device": device,
         "min_box_area_ratio": min_box_area_ratio,
         "max_box_area_ratio": max_box_area_ratio,
@@ -607,124 +331,117 @@ def run(
         "dedup_iou_threshold": dedup_iou_threshold,
         "cpu_threads": cpu_threads if device == "cpu" else None,
         "images": [str(p) for p in image_files],
-        "llm_trace": llm_trace or {},
     }
     (output_dir / "run_config.json").write_text(
         json.dumps(run_meta, indent=2, ensure_ascii=False), encoding="utf-8"
     )
-    if llm_trace is not None:
-        (output_dir / "llm_parse.json").write_text(
-            json.dumps(llm_trace, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
 
-    # Загружаем SAM3 (fp16 на cuda задаётся внутри load_sam3_components)
     sam3_processor, sam3_model = load_sam3_components(
         checkpoint_path=sam3_checkpoint_path,
         device=device,
     )
 
-    query_labels = target_labels if target_labels else ["object"]
-    image_batch_size = VisionConfig.IMAGE_BATCH_SIZE
+    for image_path in image_files:
+        image = Image.open(image_path).convert("RGB")
 
-    for batch_start in range(0, len(image_files), image_batch_size):
-        batch_paths = image_files[batch_start : batch_start + image_batch_size]
-        batch_images = [Image.open(p).convert("RGB") for p in batch_paths]
+        # Берём метки per-image, либо fallback
+        query_labels = labels_per_image.get(image_path.name, fallback_labels)
+        if not query_labels:
+            print(f"[SKIP] {image_path.name} -> нет меток от Gemma, пропуск")
+            out_prefix = build_image_output_prefix(output_dir, image_path)
+            save_detections_json([], image.size, out_prefix)
+            save_boxes_preview(image, [], out_prefix, save_when_empty=True)
+            save_empty_segmentation_artifacts(image, out_prefix)
+            append_report_block(report_path, image_path.name, [])
+            continue
 
-        # Детекция + сегментация за один шаг через SAM3 (батч изображений)
-        batch_detections: List[List[Dict[str, object]]] = run_sam3_detections(
+        raw_detections = run_sam3_detections(
             processor=sam3_processor,
             model=sam3_model,
-            images=batch_images,
+            images=[image],
             labels=query_labels,
             device=device,
+        )[0]
+
+        if not raw_detections:
+            print(f"[WARN] {image_path.name} -> no objects found for labels: {query_labels}")
+            out_prefix = build_image_output_prefix(output_dir, image_path)
+            save_detections_json([], image.size, out_prefix)
+            save_boxes_preview(image, [], out_prefix, save_when_empty=True)
+            save_empty_segmentation_artifacts(image, out_prefix)
+            append_report_block(report_path, image_path.name, [])
+            continue
+
+        deduped, dedup_dropped = deduplicate_cross_label_detections(
+            detections=raw_detections,
+            iou_threshold=dedup_iou_threshold,
+        )
+        detections, dropped = filter_detections_by_area(
+            detections=deduped,
+            image_size=image.size,
+            min_box_area_ratio=min_box_area_ratio,
+            max_box_area_ratio=max_box_area_ratio,
+            large_box_confidence_override=large_box_confidence_override,
+        )
+        dropped.extend(dedup_dropped)
+        detections, dropped_by_conf = filter_detections_by_confidence(
+            detections=detections,
+            min_confidence=min_confidence,
+        )
+        dropped.extend(dropped_by_conf)
+        if max_boxes > 0:
+            detections = detections[:max_boxes]
+
+        if not detections:
+            print(
+                f"[WARN] {image_path.name} -> all boxes filtered out "
+                f"(raw={len(raw_detections)}, dropped={len(dropped)})."
+            )
+            out_prefix = build_image_output_prefix(output_dir, image_path)
+            raw_for_json = [{k: v for k, v in d.items() if k != "_mask"} for d in raw_detections]
+            save_detections_json(raw_for_json, image.size, out_prefix)
+            save_boxes_preview(image, [], out_prefix, save_when_empty=True)
+            save_empty_segmentation_artifacts(image, out_prefix)
+            append_report_block(report_path, image_path.name, [])
+            continue
+
+        out_prefix = build_image_output_prefix(output_dir, image_path)
+
+        detections_for_json = [{k: v for k, v in d.items() if k != "_mask"} for d in detections]
+        save_detections_json(detections_for_json, image.size, out_prefix)
+        save_boxes_preview(image, detections_for_json, out_prefix)
+
+        individual_masks: List[np.ndarray] = [det.pop("_mask") for det in detections]
+        merged_mask = np.zeros((image.height, image.width), dtype=np.uint8)
+        for m in individual_masks:
+            merged_mask = np.maximum(merged_mask, m)
+
+        report_detections = [
+            {
+                "class": str(det.get("label", "unknown")),
+                "confidence": float(det.get("score") or 0.0),
+                "bbox": [float(v) for v in det.get("box", [])],
+            }
+            for det in detections
+        ]
+
+        mask_path, overlay_path = save_outputs_colored(
+            image, merged_mask, out_prefix, detections, individual_masks,
         )
 
-        for image_path, image, raw_detections in zip(batch_paths, batch_images, batch_detections):
-            if not raw_detections:
-                print(f"[WARN] {image_path.name} -> no objects found for labels: {query_labels}")
-                out_prefix = build_image_output_prefix(output_dir, image_path)
-                save_detections_json([], image.size, out_prefix)
-                save_boxes_preview(image, [], out_prefix, save_when_empty=True)
-                save_empty_segmentation_artifacts(image, out_prefix)
-                append_report_block(report_path, image_path.name, [])
-                continue
+        append_report_block(report_path, image_path.name, report_detections)
+        top = detections[0]
+        print(
+            f"[OK] {image_path.name} -> {mask_path.name}, {overlay_path.name}, "
+            f"boxes={len(detections)}, top={top.get('label')} score={top.get('score'):.3f}"
+        )
 
-            deduped, dedup_dropped = deduplicate_cross_label_detections(
-                detections=raw_detections,
-                iou_threshold=dedup_iou_threshold,
-            )
-            detections, dropped = filter_detections_by_area(
-                detections=deduped,
-                image_size=image.size,
-                min_box_area_ratio=min_box_area_ratio,
-                max_box_area_ratio=max_box_area_ratio,
-                large_box_confidence_override=large_box_confidence_override,
-            )
-            dropped.extend(dedup_dropped)
-            detections, dropped_by_conf = filter_detections_by_confidence(
-                detections=detections,
-                min_confidence=min_confidence,
-            )
-            dropped.extend(dropped_by_conf)
-            if max_boxes > 0:
-                detections = detections[:max_boxes]
-
-            if not detections:
-                print(
-                    f"[WARN] {image_path.name} -> all boxes filtered out "
-                    f"(raw={len(raw_detections)}, dropped={len(dropped)})."
-                )
-                out_prefix = build_image_output_prefix(output_dir, image_path)
-                # Сохраняем raw без маски для дебага
-                raw_for_json = [{k: v for k, v in d.items() if k != "_mask"} for d in raw_detections]
-                save_detections_json(raw_for_json, image.size, out_prefix)
-                save_boxes_preview(image, [], out_prefix, save_when_empty=True)
-                save_empty_segmentation_artifacts(image, out_prefix)
-                append_report_block(report_path, image_path.name, [])
-                continue
-
-            out_prefix = build_image_output_prefix(output_dir, image_path)
-
-            # Детекции без _mask для JSON
-            detections_for_json = [{k: v for k, v in d.items() if k != "_mask"} for d in detections]
-            save_detections_json(detections_for_json, image.size, out_prefix)
-            save_boxes_preview(image, detections_for_json, out_prefix)
-
-            # Извлекаем маски и строим merged_mask
-            individual_masks: List[np.ndarray] = [det.pop("_mask") for det in detections]
-            merged_mask = np.zeros((image.height, image.width), dtype=np.uint8)
-            for m in individual_masks:
-                merged_mask = np.maximum(merged_mask, m)
-
-            # Формируем report_detections
-            report_detections = [
-                {
-                    "class": str(det.get("label", "unknown")),
-                    "confidence": float(det.get("score") or 0.0),
-                    "bbox": [float(v) for v in det.get("box", [])],
-                }
-                for det in detections
-            ]
-
-            mask_path, overlay_path = save_outputs_colored(
-                image,
-                merged_mask,
-                out_prefix,
-                detections,
-                individual_masks,
-            )
-
-            append_report_block(report_path, image_path.name, report_detections)
-            top = detections[0]
-            print(
-                f"[OK] {image_path.name} -> {mask_path.name}, {overlay_path.name}, "
-                f"boxes={len(detections)}, top={top.get('label')} score={top.get('score'):.3f}"
-            )
+        if device == "cuda":
+            torch.cuda.empty_cache()
 
     print(f"[DONE] Results saved to: {output_dir}")
     print(f"[DONE] Report saved to: {report_path}")
 
-    # Выгрузка SAM3 из VRAM
     del sam3_model, sam3_processor
     gc.collect()
     if torch.cuda.is_available():
@@ -740,30 +457,25 @@ def main() -> None:
     parser.add_argument(
         "--sam3-checkpoint",
         default=os.getenv("SAM3_CHECKPOINT_PATH", ""),
-        help="Path to local SAM3 checkpoint file.",
+        help="Path to local SAM3 checkpoint folder.",
     )
     parser.add_argument("--image", type=Path, help="Path to a single image.")
     parser.add_argument("--images-dir", type=Path, help="Path to a directory with images.")
     parser.add_argument(
-        "--text",
-        default="object",
-        help="Text prompt, e.g. 'cat, dog'. If omitted, generic 'object' is used.",
-    )
-    parser.add_argument(
-        "--query",
+        "--labels-json",
+        type=Path,
         default=None,
-        help="Natural-language query. Overrides --text.",
+        help="JSON file: {image_name: [labels]}. Overrides --text.",
     )
     parser.add_argument(
-        "--label-dictionary",
-        choices=["none", "coco"],
-        default="coco",
-        help="Deprecated and ignored.",
+        "--text",
+        default="",
+        help="Fallback labels 'car . person . dog' applied to images not in --labels-json.",
     )
     parser.add_argument(
         "--original-query",
         default=None,
-        help="Original user prompt (before LLM parsing). Stored in llm_parse.json for traceability.",
+        help="Original user prompt for traceability.",
     )
     parser.add_argument(
         "--output-dir",
@@ -775,179 +487,44 @@ def main() -> None:
         "--device",
         default="cuda" if torch.cuda.is_available() else "cpu",
         choices=["cpu", "cuda"],
-        help="Device for inference.",
     )
     parser.add_argument(
         "--cpu-threads",
         type=int,
         default=max(1, (os.cpu_count() or 4) // 2),
-        help="Number of CPU threads for torch.",
     )
-    parser.add_argument(
-        "--min-box-area-ratio",
-        type=float,
-        default=0.002,
-        help="Drop boxes smaller than this area ratio.",
-    )
-    parser.add_argument(
-        "--max-box-area-ratio",
-        type=float,
-        default=0.85,
-        help="Drop boxes larger than this area ratio.",
-    )
-    parser.add_argument(
-        "--max-boxes",
-        type=int,
-        default=20,
-        help="Maximum number of detections to keep after filtering.",
-    )
-    parser.add_argument(
-        "--min-confidence",
-        type=float,
-        default=0.30,
-        help="Minimum detection confidence to keep.",
-    )
-    parser.add_argument(
-        "--large-box-confidence-override",
-        type=float,
-        default=0.90,
-        help="Keep very large boxes if score is above this value.",
-    )
-    parser.add_argument(
-        "--dedup-iou-threshold",
-        type=float,
-        default=0.92,
-        help="Drop overlapping cross-label duplicate boxes above this IoU.",
-    )
-    parser.add_argument(
-        "--no-filters",
-        action="store_true",
-        help="Disable area/box limits.",
-    )
+    parser.add_argument("--min-box-area-ratio", type=float, default=0.002)
+    parser.add_argument("--max-box-area-ratio", type=float, default=0.85)
+    parser.add_argument("--max-boxes", type=int, default=20)
+    parser.add_argument("--min-confidence", type=float, default=0.30)
+    parser.add_argument("--large-box-confidence-override", type=float, default=0.90)
+    parser.add_argument("--dedup-iou-threshold", type=float, default=0.92)
+    parser.add_argument("--no-filters", action="store_true")
     parser.add_argument(
         "--filters-mode",
         choices=["auto", "on", "off"],
         default="auto",
-        help="Filter behavior: on/off or auto.",
-    )
-    parser.add_argument(
-        "--query-parser",
-        choices=["auto", "rule", "llm"],
-        default="llm",
-        help="Method to parse user query into labels.",
-    )
-    parser.add_argument(
-        "--llm-model-id",
-        default="Qwen/Qwen2.5-1.5B-Instruct",
-        help="LLM for query-to-label parsing (unused, kept for compatibility).",
-    )
-    parser.add_argument(
-        "--llm-max-new-tokens",
-        type=int,
-        default=96,
-        help="Max new tokens for LLM structured output.",
-    )
-    parser.add_argument(
-        "--strict-query-classes",
-        action="store_true",
-        default=True,
-        help="Stop pipeline if no valid classes extracted from user query.",
     )
     args = parser.parse_args()
 
-    user_query = args.query if args.query is not None else args.text
-    llm_trace: Dict[str, object] = {
-        "query_parser": args.query_parser,
-        "original_query": args.original_query or "",
-        "user_query": user_query,
-        "llm_model_id": args.llm_model_id,
-        "status": "not_used",
-        "labels": [],
-        "error": "",
-    }
+    labels_per_image: Dict[str, List[str]] = {}
+    if args.labels_json:
+        labels_per_image = load_labels_per_image(args.labels_json)
+        print(f"[INFO] Loaded per-image labels for {len(labels_per_image)} images")
 
-    no_user_prompt = args.query is None and args.text.strip().lower() == "object"
-    if no_user_prompt:
-        # No prompt from user -> generic open-vocabulary search without dictionary expansion.
-        effective_prompt = "object."
-        target_labels: List[str] = []
-        llm_trace["status"] = "skipped_no_prompt"
-    else:
-        target_labels = []
-        if args.query_parser == "rule":
-            effective_prompt = build_effective_prompt(user_query, args.label_dictionary)
-            target_labels = clean_plausible_labels(normalize_labels([c.strip() for c in effective_prompt.split(".") if c.strip()]))
-            llm_trace["status"] = "skipped_rule_parser"
-            llm_trace["labels"] = target_labels
-        elif args.query_parser == "llm":
-            llm_result = resolve_query_with_llm(
-                query=user_query,
-                llm_model_id=args.llm_model_id,  # Игнорируется в новой версии
-                device=args.device,               # Игнорируется
-                llm_max_new_tokens=max(16, args.llm_max_new_tokens),
-    )
-            llm_trace.update(
-                {
-                    "status": llm_result.get("status", "unknown"),
-                    "raw_text": llm_result.get("raw_text", ""),
-                    "labels": llm_result.get("labels", []),
-                    "error": llm_result.get("error", ""),
-                }
-            )
-            if llm_result.get("ok"):
-                effective_prompt = str(llm_result["prompt"])
-                target_labels = clean_plausible_labels(normalize_labels([str(x) for x in llm_result.get("labels", [])]))
-            else:
-                print("[WARN] LLM returned no explicit classes. Skipping detections for this query.")
-                effective_prompt = ""
-                target_labels = []
-        else:
-            # Auto: LLM-only for natural language queries, no dictionary fallback.
-            looks_natural = args.query is not None or (" " in user_query.strip())
-            if looks_natural:
-                llm_result = resolve_query_with_llm(
-                    query=user_query,
-                    llm_model_id=args.llm_model_id,
-                    device=args.device,
-                    llm_max_new_tokens=max(16, args.llm_max_new_tokens),
-                )
-                llm_trace.update(
-                    {
-                        "status": llm_result.get("status", "unknown"),
-                        "raw_text": llm_result.get("raw_text", ""),
-                        "labels": llm_result.get("labels", []),
-                        "error": llm_result.get("error", ""),
-                    }
-                )
-                if llm_result.get("ok"):
-                    effective_prompt = str(llm_result["prompt"])
-                    target_labels = clean_plausible_labels(normalize_labels([str(x) for x in llm_result.get("labels", [])]))
-                else:
-                    print("[WARN] LLM returned no explicit classes. Skipping detections for this query.")
-                    effective_prompt = ""
-                    target_labels = []
-            else:
-                effective_prompt = ""
-                target_labels = []
-                llm_trace["status"] = "skipped_auto_non_natural"
+    fallback_labels = parse_text_labels(args.text)
+    if fallback_labels:
+        print(f"[INFO] Fallback labels: {fallback_labels}")
 
-    # Guardrail: for explicit user query we stop early when no classes were extracted.
-    if (
-        args.strict_query_classes
-        and args.query is not None
-        and not no_user_prompt
-        and not effective_prompt.strip()
-    ):
+    if not labels_per_image and not fallback_labels:
         payload = {
             "ok": False,
-            "error": "invalid_query_no_classes",
-            "message": "Failed to extract valid object classes from query. Please provide a clearer request.",
-            "query": user_query,
-            "llm_trace": llm_trace,
+            "error": "no_labels",
+            "message": "No labels provided via --labels-json or --text.",
+            "query": args.original_query or "",
         }
-        error_path = write_query_error(args.output_dir, payload)
-        print("[ERROR] Invalid query: no classes extracted. Detection pipeline stopped.")
-        print(f"[ERROR] Details saved to: {error_path}")
+        write_query_error(args.output_dir, payload)
+        print("[ERROR] No labels to detect. Stopped.")
         return
 
     disable_filters = args.no_filters
@@ -968,8 +545,8 @@ def main() -> None:
         sam3_checkpoint_path=args.sam3_checkpoint,
         image_files=images,
         output_dir=args.output_dir,
-        text_prompt=effective_prompt,
-        target_labels=target_labels,
+        labels_per_image=labels_per_image,
+        fallback_labels=fallback_labels,
         device=args.device,
         cpu_threads=max(1, args.cpu_threads),
         min_box_area_ratio=max(0.0, args.min_box_area_ratio),
@@ -978,34 +555,30 @@ def main() -> None:
         min_confidence=max(0.0, min(1.0, args.min_confidence)),
         large_box_confidence_override=max(0.0, min(1.0, args.large_box_confidence_override)),
         dedup_iou_threshold=max(0.0, min(1.0, args.dedup_iou_threshold)),
-        llm_trace=llm_trace,
     )
+
+
 def get_distinct_color(index: int) -> Tuple[int, int, int]:
-    """Генерирует уникальный цвет для каждого объекта по индексу."""
-    # Используем золотое сечение для равномерного распределения цветов
     golden_ratio = 0.618033988749895
     hue = (index * golden_ratio) % 1.0
-    
-    # Конвертация HSV в RGB вручную (чтобы не тащить лишние библиотеки)
-    h = hue
-    s = 0.8
-    v = 0.9
-    
+    h, s, v = hue, 0.8, 0.9
+
     i = int(h * 6.0)
     f = (h * 6.0) - i
     p = v * (1.0 - s)
     q = v * (1.0 - s * f)
     t = v * (1.0 - s * (1.0 - f))
     i %= 6
-    
+
     if i == 0: r, g, b = v, t, p
     elif i == 1: r, g, b = q, v, p
     elif i == 2: r, g, b = p, v, t
     elif i == 3: r, g, b = p, q, v
     elif i == 4: r, g, b = t, p, v
-    elif i == 5: r, g, b = v, p, q
-    
+    else: r, g, b = v, p, q
+
     return (int(r * 255), int(g * 255), int(b * 255))
+
 
 if __name__ == "__main__":
     main()
