@@ -9,9 +9,6 @@ import (
 
 func RouterRegister(r *gin.Engine, svc *httpservices.HTTPService, volumePath string) {
 	r.GET("/health", func(c *gin.Context) { c.String(http.StatusOK, "OK") })
-	r.GET("/api/hello", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"message": "Hello from Go Backend!"})
-	})
 
 	v1 := r.Group("/api/v1")
 	{
@@ -24,11 +21,16 @@ func RouterRegister(r *gin.Engine, svc *httpservices.HTTPService, volumePath str
 		protected := v1.Group("/")
 		protected.Use(svc.AuthMiddleware())
 		{
+			protected.GET("/chats", svc.Chats)
+			protected.POST("/chats", svc.CreateChat)
 			protected.POST("/detect", svc.Detect)
 			protected.POST("/history", svc.History)
 		}
 	}
 
-	// Frontend usage: GET /results/{query_id}/result/i.jpg
-	r.StaticFS("/results", gin.Dir(volumePath, false))
+	results := r.Group("/results")
+	results.Use(svc.AuthMiddleware())
+	{
+		results.GET("/*filepath", svc.ResultFile)
+	}
 }

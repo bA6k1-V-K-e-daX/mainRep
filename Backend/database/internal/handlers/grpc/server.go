@@ -13,8 +13,11 @@ import (
 type DatabaseService interface {
 	CreateUser(ctx context.Context, user models.User) error
 	GetUserByLogin(ctx context.Context, login string) (models.User, error)
-	CreateQuery(ctx context.Context, userID string) (int64, error)
+	CreateChat(ctx context.Context, userID string, title string) (string, error)
+	GetChats(ctx context.Context, userID string) ([]models.Chat, error)
+	CreateQuery(ctx context.Context, userID string, chatID string, prompt string) (int64, error)
 	GetHistoryAnswers(ctx context.Context, quantity int64, userID, flag string) ([]int32, error)
+	QueryBelongsToUser(ctx context.Context, userID string, queryID int64) (bool, error)
 }
 
 type serverAPI struct {
@@ -58,12 +61,30 @@ func (s *serverAPI) CheckUser(ctx context.Context, req *database1.CheckUserReque
 }
 
 func (s *serverAPI) AddNewData(ctx context.Context, req *database1.AddNewAnswerRequest) (*database1.AddNewAnswerResponse, error) {
-	var requestData map[string]string
+	var requestData struct {
+		Operation string `json:"operation"`
+		UserID    string `json:"user_id"`
+		ChatID    string `json:"chat_id"`
+		Title     string `json:"title"`
+		Prompt    string `json:"prompt"`
+	}
 	if err := json.Unmarshal(req.Data, &requestData); err != nil {
 		return nil, fmt.Errorf("failed to decode user id: %w", err)
 	}
 
-	queryID, err := s.database.CreateQuery(ctx, requestData["user_id"])
+	if requestData.UserID == "" {
+		return nil, fmt.Errorf("user_id is required")
+	}
+
+	if requestData.Operation == "create_chat" {
+		chatID, err := s.database.CreateChat(ctx, requestData.UserID, requestData.Title)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create chat: %w", err)
+		}
+		return &database1.AddNewAnswerResponse{Message: chatID}, nil
+	}
+
+	queryID, err := s.database.CreateQuery(ctx, requestData.UserID, requestData.ChatID, requestData.Prompt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register query: %w", err)
 	}
@@ -79,7 +100,44 @@ func (s *serverAPI) RequestOldDatas(ctx context.Context, req *database1.RequestO
 		userID   string = req.GetUserID()
 		flag     string = req.GetFlag()
 	)
-	if quantity == 0 || userID == "" || flag == "" {
+	if userID == "" {
+		return nil, fmt.Errorf("invalid request parameters")
+	}
+
+	if flag == "chats" {
+		chats, err := s.database.GetChats(ctx, userID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get chats: %w", err)
+		}
+		responseData, err := json.Marshal(chats)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal chats: %w", err)
+		}
+		return &database1.RequestOldAnswersResponse{
+			Message: "Success",
+			Data:    responseData,
+		}, nil
+	}
+
+	if flag == "query_owner" {
+		if quantity <= 0 {
+			return nil, fmt.Errorf("query id is required")
+		}
+		belongs, err := s.database.QueryBelongsToUser(ctx, userID, quantity)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check query owner: %w", err)
+		}
+		responseData, err := json.Marshal(map[string]bool{"belongs": belongs})
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal query owner status: %w", err)
+		}
+		return &database1.RequestOldAnswersResponse{
+			Message: "Success",
+			Data:    responseData,
+		}, nil
+	}
+
+	if quantity <= 0 {
 		return nil, fmt.Errorf("invalid request parameters")
 	}
 

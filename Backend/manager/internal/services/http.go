@@ -116,6 +116,35 @@ func (s *HTTPService) Login(c *gin.Context) {
 	c.JSON(http.StatusOK, models.AuthResponse{Token: tokenString})
 }
 
+func (s *HTTPService) CreateChat(c *gin.Context) {
+	userID := c.GetString("user_id")
+
+	var req models.ChatRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid payload"})
+		return
+	}
+
+	chat, err := s.dbClient.CreateChat(c.Request.Context(), userID, normalizeChatTitle(req.Title))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create chat", "details": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"chat": chat})
+}
+
+func (s *HTTPService) Chats(c *gin.Context) {
+	userID := c.GetString("user_id")
+
+	chats, err := s.dbClient.GetChats(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get chats", "details": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"chats": chats})
+}
 func (s *HTTPService) Detect(c *gin.Context) {
 	userID := c.GetString("user_id")
 
@@ -145,9 +174,19 @@ func (s *HTTPService) Detect(c *gin.Context) {
 		return
 	}
 
-	queryID, err := s.dbClient.CreateQuery(c.Request.Context(), userID)
+	chatID := strings.TrimSpace(payload.ChatID)
+	if chatID == "" {
+		chat, err := s.dbClient.CreateChat(c.Request.Context(), userID, buildChatTitle(payload))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create chat", "details": err.Error()})
+			return
+		}
+		chatID = chat.ID
+	}
+
+	queryID, err := s.dbClient.CreateQuery(c.Request.Context(), userID, chatID, payload.Prompt)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to register query task"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "Failed to register query task for this chat", "details": err.Error()})
 		return
 	}
 
@@ -239,6 +278,7 @@ func (s *HTTPService) Detect(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"query_id":          resp.QueryId,
+		"chat_id":           chatID,
 		"status":            "Success",
 		"instance_info":     resp.InstanceInfo,
 		"total":             resp.TotalObjects,
@@ -260,7 +300,7 @@ func (s *HTTPService) History(c *gin.Context) {
 		return
 	}
 
-	queries, err := s.dbClient.GetHistoryAnswers(c.Request.Context(), req.Quantity, userID, req.Flag)
+	queries, err := s.dbClient.GetHistoryAnswers(c.Request.Context(), req.Quantity, userID, req.ChatID, req.Flag)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get user queries"})
 		return
@@ -282,6 +322,34 @@ func (s *HTTPService) History(c *gin.Context) {
 	})
 }
 
+func (s *HTTPService) ResultFile(c *gin.Context) {
+	userID := c.GetString("user_id")
+	rawPath := c.Param("filepath")
+
+	queryID, safePath, err := s.resolveProtectedResultPath(rawPath)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Result file not found"})
+		return
+	}
+
+	belongs, err := s.dbClient.QueryBelongsToUser(c.Request.Context(), userID, queryID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify result owner"})
+		return
+	}
+	if !belongs {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	info, err := os.Stat(safePath)
+	if err != nil || info.IsDir() {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Result file not found"})
+		return
+	}
+
+	c.File(safePath)
+}
 func (s *HTTPService) AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tokenString := c.GetHeader("Authorization")
@@ -320,6 +388,63 @@ func (s *HTTPService) AuthMiddleware() gin.HandlerFunc {
 	}
 }
 
+func normalizeChatTitle(title string) string {
+	normalized := strings.TrimSpace(title)
+	if normalized == "" {
+		return "New chat"
+	}
+	runes := []rune(normalized)
+	if len(runes) > 255 {
+		return string(runes[:255])
+	}
+	return normalized
+}
+
+func buildChatTitle(payload models.DetectPayload) string {
+	if strings.TrimSpace(payload.ChatTitle) != "" {
+		return normalizeChatTitle(payload.ChatTitle)
+	}
+	if strings.TrimSpace(payload.Prompt) != "" {
+		return normalizeChatTitle(payload.Prompt)
+	}
+	return "New chat"
+}
+
+func (s *HTTPService) resolveProtectedResultPath(rawPath string) (int64, string, error) {
+	cleanPath := path.Clean("/" + strings.TrimPrefix(rawPath, "/"))
+	if cleanPath == "." || cleanPath == "/" {
+		return 0, "", fmt.Errorf("empty result path")
+	}
+
+	parts := strings.Split(strings.TrimPrefix(cleanPath, "/"), "/")
+	if len(parts) < 2 {
+		return 0, "", fmt.Errorf("invalid result path")
+	}
+
+	queryID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || queryID <= 0 {
+		return 0, "", fmt.Errorf("invalid query id")
+	}
+
+	queryRoot := filepath.Join(s.volumePath, parts[0])
+	relativePath := filepath.FromSlash(strings.Join(parts[1:], "/"))
+	filePath := filepath.Join(queryRoot, relativePath)
+
+	absRoot, err := filepath.Abs(queryRoot)
+	if err != nil {
+		return 0, "", err
+	}
+	absFile, err := filepath.Abs(filePath)
+	if err != nil {
+		return 0, "", err
+	}
+
+	if absFile != absRoot && !strings.HasPrefix(absFile, absRoot+string(os.PathSeparator)) {
+		return 0, "", fmt.Errorf("result path escapes query root")
+	}
+
+	return queryID, absFile, nil
+}
 func ParseReport(filePath string) ([]models.ReportEntry, error) {
 	file, err := os.Open(filePath)
 	if err != nil {

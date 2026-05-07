@@ -16,12 +16,27 @@ type AuthResponse struct {
 }
 
 type DetectPayload struct {
-	Prompt string `json:"prompt"`
+	Prompt    string `json:"prompt"`
+	ChatID    string `json:"chat_id"`
+	ChatTitle string `json:"chat_title"`
 }
 
 type HistoryAnswer struct {
 	Quantity int64  `json:"quantity"`
 	Flag     string `json:"flag"`
+	ChatID   string `json:"chat_id"`
+}
+
+type ChatRequest struct {
+	Title string `json:"title"`
+}
+
+type Chat struct {
+	ID        string `json:"id"`
+	UserID    string `json:"user_id,omitempty"`
+	Title     string `json:"title"`
+	CreatedAt string `json:"created_at,omitempty"`
+	UpdatedAt string `json:"updated_at,omitempty"`
 }
 
 type HistoryResponse struct {
