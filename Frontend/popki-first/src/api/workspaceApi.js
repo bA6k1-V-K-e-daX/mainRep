@@ -4,9 +4,9 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
  * Анализ файлов с отправкой промпта на реальный бекенд.
  * Отправляет multipart/form-data с payload (JSON) и массивом файлов.
  */
-export const analyzeMediaRequest = async ({ media, files, prompt }) => {
+export const analyzeMediaRequest = async ({ media, files, prompt, chatId, chatTitle }) => {
   const formData = new FormData();
-  formData.append("payload", JSON.stringify({ prompt }));
+  formData.append("payload", JSON.stringify({ prompt, chat_id: chatId, chat_title: chatTitle }));
   files.forEach((file) => {
     formData.append("files", file.file);
   });
@@ -142,7 +142,7 @@ export const downloadArchiveRequest = async ({ queryId, results }) => {
 
   // Добавляем report.txt
   if (queryId) {
-    const reportUrl = `/results/${queryId}/result/report.txt`;
+    const reportUrl = `${API_BASE_URL}/results/${queryId}/result/report.txt`;
     try {
       const reportResponse = await fetch(reportUrl, { headers, credentials: "include" });
       if (reportResponse.ok) {
@@ -157,4 +157,62 @@ export const downloadArchiveRequest = async ({ queryId, results }) => {
 
   const content = await zip.generateAsync({ type: "blob" });
   saveAs(content, `results-${queryId || Date.now()}.zip`);
+};
+
+const getAuthHeaders = () => {
+  const token = localStorage.getItem("auth_token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+export const createChatRequest = async ({ title }) => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/chats`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify({ title }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to create chat: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.chat;
+};
+
+export const getChatsRequest = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/chats`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to get chats: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.chats || [];
+};
+
+export const getHistoryRequest = async ({ chatId, quantity = 20 }) => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/history`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify({ chat_id: chatId, quantity }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to get history: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.queries || [];
 };

@@ -198,9 +198,8 @@ export default function Workspace() {
             {chats.map((chat) => (
               <button
                 key={chat.id}
-                onClick={() => {
-                  setActiveChatId(chat.id);
-                  resetWorkspace();
+                onClick={async () => {
+                  await setActiveChatId(chat.id);
                 }}
                 className={`w-full truncate rounded-md px-2 py-1.5 text-left text-sm transition ${
                   activeChatId === chat.id

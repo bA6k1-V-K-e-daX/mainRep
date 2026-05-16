@@ -4,6 +4,9 @@ import {
   analyzeMediaRequest,
   downloadResultsRequest,
   downloadArchiveRequest,
+  createChatRequest,
+  getChatsRequest,
+  getHistoryRequest,
 } from "../api/workspaceApi";
 
 const STORAGE_KEY = "peeky-chats-data";
@@ -87,17 +90,30 @@ export const MediaProvider = ({ children }) => {
   const [filesCount, setFilesCount] = useState(0);
   const [isDownloading, setIsDownloading] = useState(false);
   const [error, setError] = useState("");
+  const [isLoadingChats, setIsLoadingChats] = useState(false);
 
-  // Load data from localStorage on mount
+  // Load chats from server on mount
   useEffect(() => {
-    const initial = getInitialData();
-    setChats(initial.chats);
-    setActiveChatId(initial.activeChatId);
-    const cleanedMessages = {};
-    for (const [id, msgs] of Object.entries(initial.messagesByChat)) {
-      cleanedMessages[id] = cleanMessageMedia(msgs);
-    }
-    setMessagesByChat(cleanedMessages);
+    const loadChats = async () => {
+      setIsLoadingChats(true);
+      try {
+        const serverChats = await getChatsRequest();
+        setChats(serverChats);
+        if (serverChats.length > 0) {
+          setActiveChatId(serverChats[0].id);
+          const initialMessages = {};
+          for (const chat of serverChats) {
+            initialMessages[chat.id] = [];
+          }
+          setMessagesByChat(initialMessages);
+        }
+      } catch (err) {
+        setError("Не удалось загрузить чаты");
+      } finally {
+        setIsLoadingChats(false);
+      }
+    };
+    loadChats();
   }, []);
 
   // Save to localStorage whenever chats or messages change
@@ -146,28 +162,56 @@ export const MediaProvider = ({ children }) => {
     setError("");
   }, []);
 
-  const createNewChat = useCallback(() => {
+  const createNewChat = useCallback(async () => {
     const nextIndex = chats.length + 1;
-    const newChat = {
-      id: `chat-${Date.now()}`,
-      title: `Новый чат ${nextIndex}`,
-    };
-    setChats((prev) => [newChat, ...prev]);
-    setActiveChatId(newChat.id);
-    setMessagesByChat((prev) => ({
-      ...prev,
-      [newChat.id]: [],
-    }));
-    resetWorkspace();
+    const title = `Новый чат ${nextIndex}`;
+    try {
+      const newChat = await createChatRequest({ title });
+      setChats((prev) => [newChat, ...prev]);
+      setActiveChatId(newChat.id);
+      setMessagesByChat((prev) => ({
+        ...prev,
+        [newChat.id]: [],
+      }));
+      resetWorkspace();
+    } catch (err) {
+      setError("Не удалось создать чат");
+    }
   }, [chats.length, resetWorkspace]);
 
   // Switch chat - load messages for selected chat
   const handleSetActiveChatId = useCallback(
-    (id) => {
+    async (id) => {
+      if (id === activeChatId) return;
+      // Load history for the selected chat
+      const existingMessages = messagesByChat[id];
+      if (!existingMessages || existingMessages.length === 0) {
+        try {
+          const history = await getHistoryRequest({ chatId: id });
+          const flattenedMessages = [];
+          for (const query of history) {
+            for (const entry of query.entries || []) {
+              flattenedMessages.push({
+                id: `history-${query.query_id}-${entry.filename}`,
+                type: "bot",
+                results: [],
+                prompt: "",
+                timestamp: query.query_id,
+              });
+            }
+          }
+          setMessagesByChat((prev) => ({
+            ...prev,
+            [id]: flattenedMessages,
+          }));
+        } catch (err) {
+          console.error("Failed to load history:", err);
+        }
+      }
       setActiveChatId(id);
       resetWorkspace();
     },
-    [resetWorkspace],
+    [activeChatId, messagesByChat, resetWorkspace],
   );
 
   const submitPrompt = useCallback(
@@ -197,10 +241,13 @@ export const MediaProvider = ({ children }) => {
       setMedia([]);
 
       try {
+        const activeChat = chats.find((c) => c.id === activeChatId);
         const response = await analyzeMediaRequest({
           media: filesToSend[0],
           prompt,
           files: filesToSend,
+          chatId: activeChatId,
+          chatTitle: activeChat?.title,
         });
 
         const botMessage = {
@@ -292,6 +339,7 @@ export const MediaProvider = ({ children }) => {
       filesCount,
       isDownloading,
       error,
+      isLoadingChats,
     }),
     [
       chats,
@@ -311,6 +359,7 @@ export const MediaProvider = ({ children }) => {
       filesCount,
       isDownloading,
       error,
+      isLoadingChats,
     ],
   );
 
