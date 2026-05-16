@@ -25,8 +25,6 @@ export default function Workspace() {
     media,
     uploadMedia,
     removeMedia,
-    resetWorkspace,
-    results,
     messages,
     submitPrompt,
     downloadArchive,
@@ -80,10 +78,6 @@ export default function Workspace() {
   const onSubmit = () => {
     submitPrompt(prompt);
     setPrompt("");
-  };
-
-  const handleDownload = async () => {
-    await downloadArchive();
   };
 
   const renderMessage = (message) => {
@@ -158,8 +152,7 @@ export default function Workspace() {
                 ))}
               </div>
               <button
-                onClick={downloadArchive}
-                disabled={!message.results.some((r) => r.img)}
+                onClick={() => downloadArchive(message.results, message.queryId)}
                 className="mt-2 flex h-7 items-center gap-1.5 rounded-md bg-[var(--bg-brand)]/20 px-3 text-xs text-[var(--text-light)] transition hover:bg-[var(--bg-brand)]/30 disabled:opacity-50"
               >
                 <Download className="h-3.5 w-3.5" />

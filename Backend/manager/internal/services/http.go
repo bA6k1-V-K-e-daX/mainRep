@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"manager/internal/config"
 	"manager/internal/media"
 	"manager/internal/models"
@@ -354,6 +355,9 @@ func (s *HTTPService) AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tokenString := c.GetHeader("Authorization")
 		if tokenString == "" {
+			tokenString = c.Query("token") // Support token via query param for <img> tags
+		}
+		if tokenString == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
 			c.Abort()
 			return
@@ -383,7 +387,12 @@ func (s *HTTPService) AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		c.Set("user_id", claims["user_id"])
+		userID, ok := claims["user_id"].(string)
+		if !ok {
+			userID = fmt.Sprintf("%v", claims["user_id"])
+		}
+		log.Printf("DEBUG AuthMiddleware: user_id=%s, raw=%+v", userID, claims["user_id"])
+		c.Set("user_id", userID)
 		c.Next()
 	}
 }

@@ -1,6 +1,16 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
 /**
+ * Adds auth token to URL as query parameter for <img> tag support.
+ */
+export const addTokenToUrl = (url) => {
+  const token = localStorage.getItem("auth_token");
+  if (!token || !url) return url;
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}token=${encodeURIComponent(token)}`;
+};
+
+/**
  * Анализ файлов с отправкой промпта на реальный бекенд.
  * Отправляет multipart/form-data с payload (JSON) и массивом файлов.
  */
@@ -49,12 +59,13 @@ export const analyzeMediaRequest = async ({ media, files, prompt, chatId, chatTi
     const hasBoxes = entry.boxes_url;
 
     // Backend already returns full /results/... URLs
+    // Add token to URLs for <img> tag support
     if (hasBoxes) {
       results.push({
         id: `result-${entryIndex}-detection`,
         type: entry.detections?.length ? "детекция" : "без результатов",
         folder: entry.filename,
-        img: cleanInvalidBlobUrls(entry.boxes_url),
+        img: addTokenToUrl(cleanInvalidBlobUrls(entry.boxes_url)),
       });
     }
 
@@ -63,7 +74,7 @@ export const analyzeMediaRequest = async ({ media, files, prompt, chatId, chatTi
         id: `result-${entryIndex}-segmentation`,
         type: entry.detections?.length ? "сегментация" : "без результатов",
         folder: entry.filename,
-        img: cleanInvalidBlobUrls(entry.overlay_url),
+        img: addTokenToUrl(cleanInvalidBlobUrls(entry.overlay_url)),
       });
     }
 
