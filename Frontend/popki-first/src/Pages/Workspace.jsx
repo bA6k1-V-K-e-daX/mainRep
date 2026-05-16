@@ -152,7 +152,10 @@ export default function Workspace() {
                 ))}
               </div>
               <button
-                onClick={() => downloadArchive(message.results, message.queryId)}
+                onClick={() => {
+                  console.log("downloadArchive called with:", message.results, "queryId:", message.queryId);
+                  downloadArchive(message.results, message.queryId);
+                }}
                 className="mt-2 flex h-7 items-center gap-1.5 rounded-md bg-[var(--bg-brand)]/20 px-3 text-xs text-[var(--text-light)] transition hover:bg-[var(--bg-brand)]/30 disabled:opacity-50"
               >
                 <Download className="h-3.5 w-3.5" />
@@ -196,7 +199,7 @@ export default function Workspace() {
                 }}
                 className={`w-full truncate rounded-md px-2 py-1.5 text-left text-sm transition ${
                   activeChatId === chat.id
-                    ? "bg-[var(--bg-surface)] text-white"
+                    ? "bg-[var(--bg-surface)] text-[var(--surface-selected-text)]"
                     : "text-[var(--text-muted)] hover:bg-[var(--bg-secondary)]"
                 }`}
               >
@@ -207,20 +210,20 @@ export default function Workspace() {
 
           <div className="mt-auto flex items-center justify-between gap-2 border-t border-[var(--border-primary)] pt-3">
             <div className="flex items-center gap-2">
-              <div className="flex h-5 w-5 items-center justify-center rounded-full bg-white/80 text-[10px] text-black">
+              <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--avatar-bg)] text-[10px] text-black dark:bg-white/80">
                 U
               </div>
               <span className="text-xs text-[var(--text-muted)]">User11</span>
             </div>
             <button
               onClick={toggleTheme}
-              className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 transition hover:bg-white/20"
+              className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--theme-button-bg)] transition hover:bg-[var(--theme-button-hover)] dark:bg-white/10 dark:hover:bg-white/20"
               aria-label="Переключить тему"
             >
               {theme === "light" ? (
-                <Moon className="h-3.5 w-3.5 text-white" />
+                <Moon className="h-3.5 w-3.5 text-[var(--text-primary)]" />
               ) : (
-                <Sun className="h-3.5 w-3.5 text-white" />
+                <Sun className="h-3.5 w-3.5 text-[var(--text-light)]" />
               )}
             </button>
           </div>

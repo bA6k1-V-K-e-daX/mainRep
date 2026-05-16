@@ -250,25 +250,41 @@ export const MediaProvider = ({ children }) => {
               media: [],
               timestamp: query.query_id,
             });
-            // Add bot messages for each entry
+            // Add bot messages for each entry - include both boxes and overlay results
             for (const entry of query.entries || []) {
-              flattenedMessages.push({
-                id: `history-${query.query_id}-${entry.filename}`,
-                type: "bot",
-                results: [{
-                  id: crypto.randomUUID(),
+              const results = [];
+
+              if (entry.boxes_url || entry.boxesURL) {
+                results.push({
+                  id: `${crypto.randomUUID()}-detection`,
                   folder: entry.filename,
-                  type: "image",
-                  img: addTokenToUrl(entry.boxes_url || entry.boxesURL || null),
-                  boxesURL: entry.boxes_url || entry.boxesURL,
-                  overlayURL: entry.overlay_url || entry.overlayURL,
+                  type: entry.detections?.length ? "детекция" : "без результатов",
+                  img: addTokenToUrl(entry.boxes_url || entry.boxesURL),
                   detections: entry.detections || [],
-                }],
-                prompt: query.prompt || "",
-                timestamp: query.query_id,
-                filename: entry.filename,
-                queryId: query.query_id,
-              });
+                });
+              }
+
+              if (entry.overlay_url || entry.overlayURL) {
+                results.push({
+                  id: `${crypto.randomUUID()}-segmentation`,
+                  folder: entry.filename,
+                  type: entry.detections?.length ? "сегментация" : "без результатов",
+                  img: addTokenToUrl(entry.overlay_url || entry.overlayURL),
+                  detections: entry.detections || [],
+                });
+              }
+
+              if (results.length > 0) {
+                flattenedMessages.push({
+                  id: `history-${query.query_id}-${entry.filename}`,
+                  type: "bot",
+                  results,
+                  prompt: query.prompt || "",
+                  timestamp: query.query_id,
+                  filename: entry.filename,
+                  queryId: query.query_id,
+                });
+              }
             }
           }
           setMessagesByChat((prev) => ({

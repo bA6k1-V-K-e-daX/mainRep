@@ -58,6 +58,10 @@
   --border-brand: #6366f1;
   --brand-primary: #4C1DFF;
   --brand-hover: #5D33FF;
+  --surface-selected-text: #0f172a;
+  --avatar-bg: #e2e8f0;
+  --theme-button-bg: rgba(0, 0, 0, 0.08);
+  --theme-button-hover: rgba(0, 0, 0, 0.15);
   color: #0f172a;
   background-color: #ffffff;
 }
