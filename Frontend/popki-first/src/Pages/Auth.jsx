@@ -37,7 +37,7 @@ export default function Auth() {
         </figure>
 
         <div className='mx-auto w-full max-w-xl'>
-          <h1 className='mb-8 text-4xl font-semibold leading-tight text-white md:text-5xl'>
+          <h1 className='mb-8 text-4xl font-semibold leading-tight text-[var(--text-primary)] md:text-5xl'>
             Авторизация
           </h1>
 
@@ -53,7 +53,7 @@ export default function Auth() {
                 value={loginValue}
                 onChange={(e) => setLoginValue(e.target.value)}
                 required
-                className='w-full border-b border-[#4500F9] bg-transparent pb-2 text-base text-white placeholder:text-[#8A84B5] focus:outline-none focus:ring-0'
+                className='w-full border-b border-[var(--border-brand)] bg-transparent pb-2 text-base text-[var(--text-primary)] placeholder:text-[var(--text-label)] focus:outline-none focus:ring-0'
               />
 
               <label htmlFor='auth-password' className='sr-only'>
@@ -66,18 +66,18 @@ export default function Auth() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                className='w-full border-b border-[#4500F9] bg-transparent pb-2 text-base text-white placeholder:text-[#8A84B5] focus:outline-none focus:ring-0'
+                className='w-full border-b border-[var(--border-brand)] bg-transparent pb-2 text-base text-[var(--text-primary)] placeholder:text-[var(--text-label)] focus:outline-none focus:ring-0'
               />
             </div>
 
-            {error && <p className="text-sm text-red-500">{error}</p>}
+            {error && <p className="text-sm text-[var(--text-error)]">{error}</p>}
 
             <div className='flex flex-wrap items-center justify-between gap-4'>
-              <p className='text-sm text-[#8A84B5]'>
+              <p className='text-sm text-[var(--text-label)]'>
                 Нет аккаунта?{" "}
                 <Link
                   to='/registr'
-                  className='text-[#6B5CFF] transition-colors duration-300 hover:text-[#9C92FF]'
+                  className='text-[var(--bg-brand)] transition-colors duration-300 hover:text-[var(--bg-brand-hover)]'
                 >
                   Регистрация
                 </Link>
@@ -86,7 +86,7 @@ export default function Auth() {
               <Button
                 title={loading ? "Входим..." : "Войти"}
                 disabled={loading}
-                className='h-8 min-w-[110px] rounded-lg border-0 bg-[#4500F9] text-sm hover:bg-[#5A22FF] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#7D66FF] focus-visible:ring-offset-2 focus-visible:ring-offset-[#070018]'
+                className='h-8 min-w-[110px] rounded-lg border-0 bg-[var(--bg-brand)] text-sm hover:bg-[var(--bg-brand-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--bg-brand-hover)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-primary)]'
               />
             </div>
           </form>

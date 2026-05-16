@@ -40,7 +40,7 @@ export default function VideoWorkspace() {
 
   return (
     <div className='flex h-full flex-1 flex-col'>
-      <div className='flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-2xl bg-[#080313] p-4 shadow-[0_0_24px_rgba(0,0,0,0.45)]'>
+      <div className='flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-2xl bg-[var(--bg-primary)] p-4 shadow-[0_0_24px_rgba(0,0,0,0.45)]'>
         {isVideo ? (
           <ReactPlayer
             ref={playerRef}
@@ -66,7 +66,7 @@ export default function VideoWorkspace() {
 
       {isVideo ? (
         <div
-          className='relative mt-4 flex h-16 overflow-hidden rounded-xl border border-[#26194E] bg-[#0B051A]'
+          className='relative mt-4 flex h-16 overflow-hidden rounded-xl border border-[var(--border-primary)] bg-[var(--bg-tertiary)]'
           onClick={(e) => {
             if (!playerRef.current) return;
             const rect = e.currentTarget.getBoundingClientRect();
@@ -75,13 +75,13 @@ export default function VideoWorkspace() {
           }}
         >
           <div
-            className='absolute bottom-0 top-0 z-10 w-[2px] bg-[#5A22FF] shadow-[0_0_8px_#5A22FF]'
+            className='absolute bottom-0 top-0 z-10 w-[2px] bg-[var(--bg-brand)] shadow-[0_0_8px_var(--bg-brand)]'
             style={{ left: `${progress * 100}%` }}
           />
           {frames.map((frame) => (
             <div
               key={frame.id}
-              className='min-w-0 flex-1 border-r border-[#1A1334] last:border-r-0'
+              className='min-w-0 flex-1 border-r border-[var(--border-primary)] last:border-r-0'
             >
               <img
                 src={frame.url}
@@ -94,12 +94,12 @@ export default function VideoWorkspace() {
       ) : null}
 
       {isVideo ? (
-        <div className='mt-4 flex items-center justify-between rounded-xl border border-[#26194E] bg-[#0B051A] px-4 py-3'>
+        <div className='mt-4 flex items-center justify-between rounded-xl border border-[var(--border-primary)] bg-[var(--bg-tertiary)] px-4 py-3'>
           <div className='flex min-w-0 items-center gap-4'>
-            <span className='shrink-0 font-mono text-xs text-[#B3AED5] md:text-sm'>
+            <span className='shrink-0 font-mono text-xs text-[var(--text-muted)] md:text-sm'>
               {`${formatTime(playedSeconds)} / ${formatTime(duration)}`}
             </span>
-            <div className='min-w-0 truncate text-xs text-white/80 md:text-sm'>
+            <div className='min-w-0 truncate text-xs text-[var(--text-primary)]/80 md:text-sm'>
               {media.name}
             </div>
           </div>
@@ -107,19 +107,19 @@ export default function VideoWorkspace() {
           <div className='flex items-center gap-3'>
             <button
               onClick={() => skip(-15)}
-              className='p-1 text-[#8F88B7] transition hover:text-white'
+              className='p-1 text-[var(--text-muted)] transition hover:text-white'
             >
               <RotateCcw className='h-5 w-5' />
             </button>
             <button
               onClick={() => skip(15)}
-              className='p-1 text-[#8F88B7] transition hover:text-white'
+              className='p-1 text-[var(--text-muted)] transition hover:text-white'
             >
               <RotateCw className='h-5 w-5' />
             </button>
             <button
               onClick={() => setIsPlaying(!isPlaying)}
-              className='p-1 text-white transition hover:text-[#6D45FF]'
+              className='p-1 text-white transition hover:text-[var(--bg-brand-hover)]'
             >
               {isPlaying ? (
                 <Pause className='h-6 w-6 fill-current' />
