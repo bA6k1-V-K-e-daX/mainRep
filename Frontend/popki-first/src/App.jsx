@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import "./App.css";
 
 import { MediaProvider } from "./context/MediaProvider";
+import { ThemeProvider } from "./context/ThemeContext";
 import Workspace from "./Pages/Workspace";
 import GreetingsPage from "./Pages/GreetingsPage";
 import Auth from "./Pages/Auth";
@@ -117,11 +118,13 @@ function AppContent() {
 // 2. Главный компонент App просто оборачивает все в Провайдеры
 function App() {
   return (
-    <MediaProvider>
-      <Router>
-        <AppContent />
-      </Router>
-    </MediaProvider>
+    <ThemeProvider>
+      <MediaProvider>
+        <Router>
+          <AppContent />
+        </Router>
+      </MediaProvider>
+    </ThemeProvider>
   );
 }
 
